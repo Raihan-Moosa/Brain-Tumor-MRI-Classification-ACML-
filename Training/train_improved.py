@@ -1,9 +1,13 @@
+import os
 import torch
 import torch.nn as nn
 import torch.optim as optim
 from torchvision import datasets, transforms
 from torch.utils.data import DataLoader
 import matplotlib.pyplot as plt
+
+os.makedirs("plots", exist_ok=True)
+os.makedirs("models", exist_ok=True)
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print("Using device:", device)
@@ -80,7 +84,7 @@ print(model)
 criterion = nn.CrossEntropyLoss()
 optimizer = optim.Adam(model.parameters(), lr=0.001)
 
-num_epochs = 10
+num_epochs = 15
 
 train_losses = []
 val_losses = []
@@ -134,9 +138,11 @@ for epoch in range(num_epochs):
     val_losses.append(epoch_val_loss)
     val_accuracies.append(epoch_val_acc)
 
-    print(f"Epoch [{epoch+1}/{num_epochs}] "
-          f"Train Loss: {epoch_train_loss:.4f} | Train Acc: {epoch_train_acc:.4f} | "
-          f"Val Loss: {epoch_val_loss:.4f} | Val Acc: {epoch_val_acc:.4f}")
+    print(
+        f"Epoch [{epoch + 1}/{num_epochs}] "
+        f"Train Loss: {epoch_train_loss:.4f} | Train Acc: {epoch_train_acc:.4f} | "
+        f"Val Loss: {epoch_val_loss:.4f} | Val Acc: {epoch_val_acc:.4f}"
+    )
 
 plt.figure(figsize=(8, 5))
 plt.plot(range(1, num_epochs + 1), train_losses, label="Train Loss")
@@ -145,6 +151,8 @@ plt.xlabel("Epoch")
 plt.ylabel("Loss")
 plt.title("Training and Validation Loss")
 plt.legend()
+plt.tight_layout()
+plt.savefig("plots/loss_curve.png")
 plt.show()
 
 plt.figure(figsize=(8, 5))
@@ -154,4 +162,11 @@ plt.xlabel("Epoch")
 plt.ylabel("Accuracy")
 plt.title("Training and Validation Accuracy")
 plt.legend()
+plt.tight_layout()
+plt.savefig("plots/accuracy_curve.png")
 plt.show()
+
+torch.save(model.state_dict(), "models/brain_tumor_cnn.pth")
+print("Model saved as models/brain_tumor_cnn.pth")
+print("Loss curve saved as plots/loss_curve.png")
+print("Accuracy curve saved as plots/accuracy_curve.png")
