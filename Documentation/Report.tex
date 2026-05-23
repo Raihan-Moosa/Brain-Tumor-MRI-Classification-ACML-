@@ -1,0 +1,394 @@
+\documentclass{article}
+\usepackage{graphicx} % Required for inserting images
+\usepackage[a4paper, margin=1in]{geometry}
+\usepackage{booktabs}
+\usepackage{float}
+\usepackage{titlesec}
+
+\titleformat{\section}
+  {\LARGE\bfseries}
+  {\thesection}{1em}{}
+
+\titleformat{\subsection}
+  {\Large\bfseries}
+  {\thesubsection}{1em}{}
+
+\titleformat{\subsubsection}
+  {\large\bfseries}
+  {\thesubsubsection}{1em}{}
+
+\begin{document}
+
+\begin{titlepage}
+    \centering
+    \vspace*{2.5cm}
+
+    {\Huge\bfseries Brain Tumour MRI Classification Using Convolutional Neural Networks\par}
+
+    \vspace{1.2cm}
+
+    {\LARGE ACML Report\par}
+    \vspace{0.3cm}
+    {\Large COMS4030A\par}
+
+    \vspace{2cm}
+
+    \rule{0.75\textwidth}{0.6pt}
+    \vspace{0.8cm}
+
+    {\large
+    \textbf{Raihan Moosa} \hspace{0.5cm} 2677934\par
+    \vspace{0.3cm}
+    \textbf{Nabeel Mahomed} \hspace{0.5cm} 2671907\par
+    \vspace{0.3cm}
+    \textbf{Calvin Rea} \hspace{1.05cm} 2681009\par
+    }
+
+    \vspace{0.8cm}
+    \rule{0.75\textwidth}{0.6pt}
+
+    \vfill
+
+    {\large 24 May 2026\par}
+
+\end{titlepage}
+
+
+\section{Project Topic Selection}
+
+The chosen project topic is \textbf{brain tumour MRI image classification}. The aim of the project is to train models that can classify brain MRI scans into one of four categories: \textit{glioma}, \textit{meningioma}, \textit{pituitary}, and \textit{notumor}. This topic is well suited to image classification using convolutional neural networks (CNNs), and it also provides a strong medical context with results that can be interpreted visually.
+
+\section{Dataset Selection}
+
+For this project, we selected the \textbf{Brain Tumour MRI Dataset} by Masoud Nickparvar from Kaggle. The dataset was chosen because it is publicly available, already organised into four clinically meaningful classes, and large enough to support a reasonably complex deep learning project. Another important advantage was that the dataset structure and class distribution made it suitable for fair evaluation and model comparison.
+
+The dataset contains a total of \textbf{7,221} brain MRI images across the following four classes:
+
+\begin{itemize}
+    \item \texttt{glioma}
+    \item \texttt{meningioma}
+    \item \texttt{notumor}
+    \item \texttt{pituitary}
+\end{itemize}
+
+Although the scans are grayscale in nature, they are stored in RGB image format, which makes them compatible with standard computer vision pipelines in PyTorch. The dataset is fully anonymised and publicly available, so no ethics clearance was required for this project.
+
+\subsection{Dataset Description and Objectives}
+
+Each image in the dataset is a labelled MRI brain scan corresponding to one of the four tumour-related categories. Glioma refers to tumours arising from glial cells, meningioma refers to tumours of the meninges, pituitary refers to tumours near the base of the brain around the pituitary gland, and notumor refers to healthy brain scans with no visible pathology.
+
+The primary objective of the project was to build custom convolutional neural networks capable of classifying MRI brain images into these four categories. As the project developed, a secondary objective emerged: to investigate whether the models were learning clinically meaningful tumour features or relying on spurious correlations in the background of the images. This motivated the use of an additional Region of Interest (ROI) preprocessing pipeline and later interpretability analysis using Grad-CAM.
+
+\subsection{Preprocessing and Data Splits}
+
+\subsubsection{Train--Validation--Test Split}
+
+To create a fair and consistent evaluation setup, the full dataset was divided into training, validation, and test sets using a \textbf{stratified random split} with a fixed random seed of 42. Stratification was used to preserve equal class representation across all subsets.
+
+\begin{table}[H]
+\centering
+\caption{Final dataset split used in the project.}
+\label{tab:data_split}
+\begin{tabular}{lcc}
+\toprule
+\textbf{Split} & \textbf{Number of Images} & \textbf{Proportion} \\
+\midrule
+Training   & 5,061 & 70\% \\
+Validation & 1,080 & 15\% \\
+Test       & 1,080 & 15\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The test set was held out completely and used only for final evaluation. Each split maintained equal representation across the four classes, with the test set containing 270 images per class.
+
+\subsubsection{ROI Preprocessing}
+
+In addition to the raw dataset, a Region of Interest (ROI) cropped version of the dataset was prepared. The motivation for this was to investigate whether the models were truly learning tumour morphology or whether they were exploiting shortcut features such as black background padding, scanner-specific artifacts, or other non-diagnostic image characteristics.
+
+The ROI cropping pipeline was implemented using NumPy and PIL only. Each image was converted to grayscale, thresholded using an Otsu-based approach, and then cropped around the largest connected foreground component. A small margin of 10 pixels was retained around the detected region to avoid overly aggressive cropping. This process removed much of the black background surrounding the brain tissue.
+
+The ROI dataset was then used in controlled experiments alongside the raw dataset to assess the robustness of the models and the extent to which background information influenced classification performance.
+
+\subsubsection{Image Transforms}
+
+All images were resized to a consistent resolution depending on the model being trained. Standard augmentation techniques such as random rotation, horizontal and vertical flips, and colour jitter were applied to the training data. All pixel values were converted to tensors and normalised using channel-wise mean and standard deviation. The intentionally naive baseline model omitted normalisation in order to preserve its role as a simple lower-bound reference model.
+
+\subsection{Summary}
+
+In summary, this project focuses on brain tumour MRI classification using a publicly available Kaggle dataset containing 7,221 MRI images across four classes. The dataset was split into training, validation, and test sets using a stratified random procedure, and an additional ROI-cropped variant was created to test whether the models were relying on genuine tumour features or on spurious background cues. This provided a strong and defensible foundation for the modelling and evaluation stages of the project.
+
+\section{Models}
+
+\subsection{Overview of the Modelling Strategy}
+
+To address the four-class brain tumour MRI classification task, three custom convolutional neural network architectures were designed and implemented from scratch in \textbf{PyTorch}. No pretrained weights or transfer learning were used at any stage. The models were developed in increasing order of complexity so that the project could compare a simple baseline against progressively more sophisticated architectures.
+
+The three models used in this study were:
+\begin{itemize}
+    \item \textbf{SimpleCNN (Baseline)}
+    \item \textbf{NormCNN (Improved)}
+    \item \textbf{AttentionCNN / BrainTumorNet-Lite}
+\end{itemize}
+
+This sequence allowed the modelling process to be both experimental and interpretable. The baseline model provided a reference point, the second model introduced standard stabilisation techniques, and the final model incorporated more advanced architectural ideas such as residual learning, channel attention, and computationally efficient convolutions.
+
+\subsection{Model Summary}
+
+Table~\ref{tab:model_summary} summarises the main characteristics of the three architectures.
+
+\begin{table}[H]
+\centering
+\caption{Summary of the three custom CNN architectures used in the project.}
+\label{tab:model_summary}
+\begin{tabular}{lccc}
+\toprule
+\textbf{Model} & \textbf{Input Size} & \textbf{Parameters} & \textbf{Main Design Features} \\
+\midrule
+SimpleCNN      & $512 \times 512$ & 623,012   & Basic Conv--ReLU--Pool pipeline, dropout \\
+NormCNN        & $256 \times 256$ & 230,148   & BatchNorm, global average pooling, normalisation \\
+AttentionCNN   & $128 \times 128$ & 4,120,676 & Residual blocks, SE attention, depthwise separable convs \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Although all three models are CNN-based, they differ substantially in design philosophy. The first model is intentionally simple, the second is a careful refinement of the first, and the third is a deeper and more expressive architecture built to test whether more advanced custom design choices improve performance.
+
+\subsection{SimpleCNN (Baseline)}
+
+\subsubsection{Purpose of the Baseline Model}
+
+The \textbf{SimpleCNN} was designed as an intentionally naive baseline model. Its purpose was not to be the most advanced architecture, but rather to establish a lower-bound reference for the task. By starting with a simple model, it became possible to evaluate whether later architectural refinements were genuinely beneficial.
+
+This model was deliberately kept straightforward:
+\begin{itemize}
+    \item no batch normalisation,
+    \item no residual connections,
+    \item no channel attention,
+    \item and no input normalisation in the preprocessing pipeline.
+\end{itemize}
+
+As a result, it serves as a useful benchmark for comparison against the more carefully engineered models that followed.
+
+\subsubsection{Architecture}
+
+The baseline model consists of four repeated convolutional blocks. Each block contains:
+\begin{itemize}
+    \item a \texttt{Conv2d} layer,
+    \item a \texttt{ReLU} activation,
+    \item and a \texttt{MaxPool2d} layer.
+\end{itemize}
+
+The number of channels increases progressively across the blocks:
+\[
+3 \rightarrow 16 \rightarrow 32 \rightarrow 64 \rightarrow 128
+\]
+
+After the convolutional feature extractor, the network applies \texttt{AdaptiveAvgPool2d(4,4)}. This produces a fixed spatial output size and avoids directly flattening a large high-resolution feature map. The resulting feature representation is passed to a classifier consisting of:
+\begin{itemize}
+    \item a fully connected layer from 2048 to 256 units,
+    \item a ReLU activation,
+    \item dropout with probability 0.5,
+    \item and a final linear layer producing four output logits.
+\end{itemize}
+
+\subsubsection{Critical Design Note}
+
+An earlier version of the baseline used a classifier of the form:
+\[
+\texttt{Linear}(128 \times 32 \times 32,\; 256)
+\]
+which assumes a fixed 512$\times$512 input and creates an extremely large dense layer. This design would have produced a classifier with roughly 134 million weights, making it unnecessarily heavy and poorly suited to CPU training.
+
+To correct this, the architecture was revised to use:
+\[
+\texttt{AdaptiveAvgPool2d}(4,4) \rightarrow \texttt{Linear}(2048,256)
+\]
+which reduced the model to \textbf{623,012 trainable parameters}. This change kept the baseline simple while making it computationally feasible. No other major sophistication was added, so the model still retained its role as a deliberately basic reference system.
+
+\subsubsection{Training Configuration}
+
+The SimpleCNN was trained at an input resolution of \textbf{512$\times$512}. Training used:
+\begin{itemize}
+    \item \textbf{Optimiser:} Adam
+    \item \textbf{Learning rate:} $1\times 10^{-3}$
+    \item \textbf{Loss function:} CrossEntropyLoss
+\end{itemize}
+
+Its preprocessing pipeline intentionally omitted normalisation, which distinguishes it from the more refined models that followed.
+
+\subsubsection{Critical Assessment}
+
+From a modelling perspective, the SimpleCNN is useful because it is transparent and easy to interpret. However, it is limited in several important ways:
+\begin{itemize}
+    \item it lacks internal feature stabilisation through batch normalisation,
+    \item it has no mechanism for learning residual refinements,
+    \item it relies on a conventional convolutional pipeline without any explicit attention mechanism,
+    \item and it uses a relatively large input size despite being architecturally simple.
+\end{itemize}
+
+For these reasons, it functions best as a baseline rather than as a final deployment candidate.
+
+\subsection{NormCNN (Improved)}
+
+\subsubsection{Motivation}
+
+The \textbf{NormCNN} was designed as a direct refinement of the baseline rather than a complete redesign. The goal was to preserve the general structure of the first model while introducing two of the most important stabilising improvements in modern CNN training:
+\begin{enumerate}
+    \item \textbf{input normalisation}, and
+    \item \textbf{batch normalisation}.
+\end{enumerate}
+
+This makes the NormCNN an incremental and controlled improvement over the baseline, rather than a fundamentally different model.
+
+\subsubsection{Architecture}
+
+Like the baseline, the NormCNN uses four convolutional stages with increasing channel depth. However, each convolutional block now includes batch normalisation, which helps stabilise activations and improves optimisation behaviour. The model therefore follows the pattern:
+\[
+\texttt{Conv2d} \rightarrow \texttt{BatchNorm2d} \rightarrow \texttt{ReLU} \rightarrow \texttt{MaxPool2d}
+\]
+
+At the end of the convolutional backbone, the NormCNN uses \texttt{AdaptiveAvgPool2d(1,1)}, i.e.\ global average pooling. This compresses each final feature map to a single scalar and produces a compact 128-dimensional representation.
+
+The classifier is deeper than that of the baseline and consists of:
+\begin{itemize}
+    \item \texttt{Linear}(128, 512)
+    \item ReLU
+    \item Dropout
+    \item \texttt{Linear}(512, 128)
+    \item ReLU
+    \item Dropout
+    \item \texttt{Linear}(128, 4)
+\end{itemize}
+
+This architecture contains \textbf{230,148 trainable parameters}, making it smaller than the baseline despite being conceptually more refined.
+
+\subsubsection{Preprocessing and Training Setup}
+
+The NormCNN was trained on images resized to \textbf{256$\times$256}. The preprocessing pipeline normalised pixel values to the range implied by:
+\[
+\texttt{mean} = [0.5,0.5,0.5], \quad \texttt{std} = [0.5,0.5,0.5]
+\]
+which maps the image intensities approximately to the interval $[-1,1]$.
+
+Training used:
+\begin{itemize}
+    \item \textbf{Optimiser:} Adam
+    \item \textbf{Base learning rate:} $3\times 10^{-4}$
+    \item \textbf{Loss function:} CrossEntropyLoss
+    \item \textbf{Learning-rate schedule:} cosine annealing
+\end{itemize}
+
+\subsubsection{Critical Assessment}
+
+The NormCNN is an important model in the study because it represents a disciplined architectural improvement rather than a dramatic increase in complexity. Its use of input normalisation and batch normalisation makes it more theoretically sound than the baseline, while global average pooling keeps the feature representation compact.
+
+From a critical point of view, the NormCNN is appealing because it balances simplicity with regularisation. However, it still remains a fairly conventional CNN. It does not explicitly model channel importance, long-range dependencies, or residual feature refinement. As such, it occupies a middle ground: stronger than the baseline, but still limited compared with the most advanced architecture in the project.
+
+\subsection{AttentionCNN / BrainTumorNet-Lite}
+
+\subsubsection{Motivation}
+
+The third and most advanced model is \textbf{AttentionCNN}, referred to in the implementation as \textbf{BrainTumorNet-Lite}. This model was developed to test whether a more expressive custom architecture could learn richer and more discriminative MRI features than the simpler CNNs.
+
+Rather than merely increasing the number of layers, this architecture introduces several specific design ideas intended to improve efficiency and representation learning:
+\begin{enumerate}
+    \item \textbf{depthwise separable convolutions},
+    \item \textbf{squeeze-and-excitation (SE) channel attention},
+    \item and \textbf{residual connections}.
+\end{enumerate}
+
+The model therefore combines ideas from modern CNN design while remaining fully custom and trained from scratch.
+
+\subsubsection{Architecture}
+
+The network begins with a convolutional stem composed of two strided convolutions, which downsample the input from \textbf{128$\times$128} to a smaller spatial representation. After this stem, the model passes feature maps through four stages of lightweight residual blocks with channel dimensions:
+\[
+64 \rightarrow 128 \rightarrow 256 \rightarrow 512 \rightarrow 512
+\]
+
+Each block uses \textbf{depthwise separable convolutions}. This means that a standard convolution is factorised into:
+\begin{itemize}
+    \item a depthwise spatial convolution applied independently to each channel, followed by
+    \item a pointwise $1\times1$ convolution to mix information across channels.
+\end{itemize}
+
+This design reduces computational cost substantially relative to full convolutions while retaining expressive power.
+
+In addition, each block includes a \textbf{squeeze-and-excitation (SE) module}. The SE mechanism first compresses each feature map to a single scalar via global pooling, then passes the resulting vector through a small bottleneck network, and finally uses sigmoid gating to reweight the channels. This gives the network a learned channel-attention mechanism, allowing it to emphasise features that appear most informative for the classification task.
+
+Residual skip connections are also included so that each block learns a residual transformation relative to its input. This improves gradient flow and typically makes deeper models easier to optimise.
+
+\subsubsection{Classification Head}
+
+After the final convolutional stage, the model applies both:
+\begin{itemize}
+    \item global average pooling, and
+    \item global max pooling.
+\end{itemize}
+
+These two pooled feature vectors are concatenated to form a \textbf{1024-dimensional} representation. The classification head then processes this representation through a three-layer fully connected network with batch normalisation and dropout before producing four output logits.
+
+This final architecture contains \textbf{4,120,676 trainable parameters}, making it by far the largest and most expressive of the three models.
+
+\subsubsection{Preprocessing and Training Setup}
+
+The AttentionCNN was trained on images resized to \textbf{128$\times$128}. Unlike the other two models, it used normalisation based on \textbf{ImageNet statistics}:
+\[
+\texttt{mean} = [0.485, 0.456, 0.406], \quad
+\texttt{std} = [0.229, 0.224, 0.225]
+\]
+
+In addition to the standard optimisation setup, the model incorporated several more advanced training techniques:
+\begin{itemize}
+    \item \textbf{MixUp augmentation} with $\alpha=0.3$
+    \item \textbf{label smoothing} with $\varepsilon=0.1$
+    \item \textbf{cosine annealing with warm restarts} using $T_0=10$ and $T_{\text{mult}}=2$
+    \item \textbf{test-time augmentation (TTA)} using four transformed views at inference
+\end{itemize}
+
+These additions make the AttentionCNN not only a more advanced architecture, but also the most sophisticated training pipeline in the project.
+
+\subsubsection{Critical Assessment}
+
+The AttentionCNN is the strongest model architecturally, but it is also the most complex and the hardest to reason about. Its main strengths are:
+\begin{itemize}
+    \item higher representational capacity,
+    \item better parameter efficiency than a naive deep CNN,
+    \item channel-wise attention through SE blocks,
+    \item and more stable deep optimisation through residual learning.
+\end{itemize}
+
+At the same time, its complexity makes it more sensitive to design choices and harder to interpret. This is one of the reasons why its behaviour needed to be examined carefully later through Grad-CAM and ROI experiments rather than being judged on raw accuracy alone.
+
+\subsection{Comparative Design Perspective}
+
+Taken together, the three models form a deliberate progression in design:
+
+\begin{itemize}
+    \item \textbf{SimpleCNN} asks: how far can a basic CNN go on this task?
+    \item \textbf{NormCNN} asks: what happens when standard stabilisation techniques are added?
+    \item \textbf{AttentionCNN} asks: can a more modern custom architecture learn stronger and more discriminative MRI features?
+\end{itemize}
+
+This progression is important because it reflects a genuine modelling investigation rather than a single isolated architecture choice. Each model was built to answer a different design question, and the later sections of the report compare their behaviour under both raw and ROI-cropped conditions.
+
+\subsection{Implementation Notes}
+
+All models were implemented in \textbf{PyTorch} and trained on CPU. In addition to the core deep learning framework, the broader modelling workflow made use of:
+\begin{itemize}
+    \item \textbf{torchvision} for image loading and transforms,
+    \item \textbf{scikit-learn} for metrics such as precision, recall, F1-score, and confusion matrices,
+    \item \textbf{matplotlib} and \textbf{seaborn} for training curves and visualisations,
+    \item and custom hook-based PyTorch code for later Grad-CAM generation.
+\end{itemize}
+
+No part of the modelling stage relied on off-the-shelf pretrained networks. This is important because it ensures that all architectural behaviour reported in the project is attributable to models designed and trained by the group itself.
+
+\subsection{Summary}
+
+In summary, the modelling stage of the project used three custom CNN architectures of increasing complexity. The SimpleCNN served as a baseline reference, the NormCNN introduced normalisation and batch stabilisation, and the AttentionCNN extended the design further with residual blocks, squeeze-and-excitation attention, and depthwise separable convolutions. This gave the project a strong comparative modelling framework and provided a solid basis for the later experimental analysis.
+
+\end{document}
+
+
