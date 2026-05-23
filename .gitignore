@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+
+# Dataset and generated images
+Dataset/
+Outputs.txt
+outputs/
+outputs_lite/
+Plots/
+Results/
+Models/
+Training/models/
+
+# PyTorch checkpoints and temporary files
+*.pth
+*.pt
+*.ckpt
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints/
+
+# OS files
+.DS_Store
+Thumbs.db

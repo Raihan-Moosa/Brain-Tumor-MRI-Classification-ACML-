@@ -1,5 +1,5 @@
 """
-MRI_classifier.py  —  BrainTumorNet-Lite  (FIXED + Sequential Saliency)
+MRI_classifier_roi.py  —  BrainTumorNet-Lite  (FIXED + Sequential Saliency)
 =========================================================================
 Fixes from original
 --------------------
@@ -51,7 +51,7 @@ print(f"{'='*62}\n")
 # ─────────────────────────────────────────────────────────────────────────────
 #  Paths
 # ─────────────────────────────────────────────────────────────────────────────
-BASE  = r"Dataset"
+BASE  = r"Dataset/ROI"
 TRAIN = os.path.join(BASE, "train")
 VAL   = os.path.join(BASE, "val")
 TEST  = os.path.join(BASE, "test")
@@ -60,12 +60,12 @@ os.makedirs("Models",                   exist_ok=True)
 os.makedirs("Models/saliency_ckpts",    exist_ok=True)   # sequential saliency
 os.makedirs("Plots",                    exist_ok=True)
 
-CKPT_PATH = "Models/best_braintumor_lite.pth"
+CKPT_PATH = "Models/best_braintumor_lite_roi.pth"
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  Hyper-parameters
 # ─────────────────────────────────────────────────────────────────────────────
-IMG_SIZE          = 128
+IMG_SIZE          = 224
 BATCH_SIZE        = 32
 NUM_CLASSES       = 4
 NUM_EPOCHS        = 60          # hard cap — ES fires first
@@ -381,7 +381,7 @@ def main():
         # it is the best model. gradcam_sequential.py loads these in order to
         # visualise how the model's attention evolves during training.
         if epoch % SALIENCY_INTERVAL == 0:
-            ckpt_name = f"Models/saliency_ckpts/epoch_{epoch:03d}.pth"
+            ckpt_name = f"Models/saliency_ckpts/epoch_{epoch:03d}_roi.pth"
             torch.save(model.state_dict(), ckpt_name)
             print(f"  [Saliency ckpt] Saved: {ckpt_name}")
 
@@ -392,7 +392,7 @@ def main():
                   f"(epoch {stopper.best_epoch + 1}).\n")
             # Save one final saliency checkpoint at the stopping epoch
             torch.save(model.state_dict(),
-                       f"Models/saliency_ckpts/epoch_{epoch:03d}_final.pth")
+                       f"Models/saliency_ckpts/epoch_{epoch:03d}_final_roi.pth")
             break
 
     # Always restore best checkpoint — not the final overfitted epoch
@@ -421,8 +421,8 @@ def main():
     ax2.legend(); ax2.grid(alpha=0.3)
 
     plt.tight_layout()
-    plt.savefig("Plots/lite_curves.png", dpi=150); plt.close()
-    print("Saved: Plots/lite_curves.png")
+    plt.savefig("Plots/lite_curves_roi.png", dpi=150); plt.close()
+    print("Saved: Plots/lite_curves_roi.png")
 
     # ─────────────────────────────────────────────────────────────────────────
     #  Test evaluation
@@ -451,8 +451,8 @@ def main():
                     xticklabels=CLASS_NAMES, yticklabels=CLASS_NAMES)
         ax.set_xlabel("Predicted"); ax.set_ylabel("True"); ax.set_title(title)
     plt.tight_layout()
-    plt.savefig("Plots/lite_confusion.png", dpi=150); plt.close()
-    print("Saved: Plots/lite_confusion.png")
+    plt.savefig("Plots/lite_confusion_roi.png", dpi=150); plt.close()
+    print("Saved: Plots/lite_confusion_roi.png")
     print(f"\nBest model: {CKPT_PATH}")
     print(f"Saliency checkpoints: Models/saliency_ckpts/\n")
 

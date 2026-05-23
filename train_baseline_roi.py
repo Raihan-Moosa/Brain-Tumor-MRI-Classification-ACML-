@@ -1,5 +1,5 @@
 """
-train_baseline.py  —  Baseline CNN
+train_baseline_roi.py  —  Baseline CNN
 ====================================
 Deliberately naive first attempt. Preserved as close to the original
 as possible. The only changes from the original submission are:
@@ -39,16 +39,16 @@ np.random.seed(SEED)
 torch.manual_seed(SEED)
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
-TRAIN = "Dataset/train"
-VAL   = "Dataset/val"
-TEST  = "Dataset/test"
+TRAIN = "Dataset/ROI/train"
+VAL   = "Dataset/ROI/val"
+TEST  = "Dataset/ROI/test"
 
 os.makedirs("Models", exist_ok=True)
 os.makedirs("Plots",  exist_ok=True)
-CKPT = "Models/best_baseline.pth"
+CKPT = "Models/best_baseline_roi.pth"
 
 # ── Hyper-parameters — original values preserved ──────────────────────────────
-IMG_SIZE    = 512       # original — slow but kept for authenticity
+IMG_SIZE    = 224       # original — slow but kept for authenticity
 BATCH       = 8         # original
 NUM_EPOCHS  = 60        # raised from 10; ES fires before this anyway
 LR          = 1e-3      # original
@@ -202,6 +202,6 @@ ax2.plot(xs, history["val_acc"],   label="Val",   color="#F44336", lw=2)
 ax2.set_title("Baseline CNN — Accuracy"); ax2.legend(); ax2.grid(alpha=0.3)
 
 plt.tight_layout()
-plt.savefig("Plots/baseline_curves.png", dpi=150); plt.close()
-print("Saved: Plots/baseline_curves.png")
+plt.savefig("Plots/baseline_curves_roi.png", dpi=150); plt.close()
+print("Saved: Plots/baseline_curves_roi.png")
 print(f"Best model: {CKPT}")

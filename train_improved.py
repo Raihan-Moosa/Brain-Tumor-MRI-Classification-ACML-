@@ -1,172 +1,229 @@
+"""
+train_improved.py  —  Improved CNN
+====================================
+Step up from baseline:
+  + BatchNorm after every conv block     (more stable training)
+  + Higher resolution: 256x256          (vs 128 baseline)
+  + Input normalisation                  (vs none in baseline)
+  + Wider classifier head 128->512->128  (more capacity than original 128->64)
+  + Cosine LR decay                      (vs fixed LR in baseline)
+  + lr=3e-4                              (1e-3 destabilises BatchNorm)
+
+Fixed random seed for reproducibility.
+"""
+
 import os
+import random
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
+from torch.optim.lr_scheduler import CosineAnnealingLR
 from torchvision import datasets, transforms
 from torch.utils.data import DataLoader
+import matplotlib
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+import shutil
 
-os.makedirs("Plots", exist_ok=True)
+from stopping import EarlyStopping
+
+# ── Reproducibility ───────────────────────────────────────────────────────────
+SEED = 42
+random.seed(SEED)
+np.random.seed(SEED)
+torch.manual_seed(SEED)
+
+# ── Paths ─────────────────────────────────────────────────────────────────────
+TRAIN = "Dataset/train"
+VAL   = "Dataset/val"
+TEST  = "Dataset/test"
+
 os.makedirs("Models", exist_ok=True)
+os.makedirs("Plots",  exist_ok=True)
+CKPT = "Models/best_improved.pth"
 
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-print("Using device:", device)
+# ── Hyper-parameters ──────────────────────────────────────────────────────────
+IMG_SIZE    = 256
+BATCH       = 16
+NUM_EPOCHS  = 80
+LR          = 3e-4      # FIXED: 1e-3 destabilises BatchNorm layers
+PATIENCE    = 7         # slightly more tolerant given cosine LR valleys
+DELTA       = 1e-4
+NUM_WORKERS = 0
 
-train_dir = r"Dataset\train"
-val_dir = r"Dataset\val"
-test_dir = r"Dataset\test"
+DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+print(f"Device: {DEVICE}")
 
-train_transform = transforms.Compose([
-    transforms.Resize((256, 256)),
+# ── Transforms ────────────────────────────────────────────────────────────────
+# Normalisation added vs baseline — this is one of the explicit improvements
+train_tf = transforms.Compose([
+    transforms.Resize((IMG_SIZE, IMG_SIZE)),
+    transforms.RandomHorizontalFlip(),
     transforms.RandomRotation(10),
     transforms.ToTensor(),
-    transforms.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
+    transforms.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5]),
 ])
-
-val_test_transform = transforms.Compose([
-    transforms.Resize((256, 256)),
+eval_tf = transforms.Compose([
+    transforms.Resize((IMG_SIZE, IMG_SIZE)),
     transforms.ToTensor(),
-    transforms.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
+    transforms.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5]),
 ])
 
-train_dataset = datasets.ImageFolder(root=train_dir, transform=train_transform)
-val_dataset = datasets.ImageFolder(root=val_dir, transform=val_test_transform)
-test_dataset = datasets.ImageFolder(root=test_dir, transform=val_test_transform)
+# ── Data ──────────────────────────────────────────────────────────────────────
+train_ds = datasets.ImageFolder(TRAIN, transform=train_tf)
+val_ds   = datasets.ImageFolder(VAL,   transform=eval_tf)
+test_ds  = datasets.ImageFolder(TEST,  transform=eval_tf)
 
-batch_size = 8
+train_loader = DataLoader(train_ds, batch_size=BATCH, shuffle=True,
+                          num_workers=NUM_WORKERS)
+val_loader   = DataLoader(val_ds,   batch_size=BATCH, shuffle=False,
+                          num_workers=NUM_WORKERS)
+test_loader  = DataLoader(test_ds,  batch_size=BATCH, shuffle=False,
+                          num_workers=NUM_WORKERS)
 
-train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
-val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
-test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
+print(f"Classes : {train_ds.classes}")
+print(f"Train: {len(train_ds)}  Val: {len(val_ds)}  Test: {len(test_ds)}\n")
 
-print("Classes:", train_dataset.classes)
-
+# ── Model ─────────────────────────────────────────────────────────────────────
 class BetterBrainTumorCNN(nn.Module):
-    def __init__(self):
+    """
+    Improvements over baseline:
+      - BatchNorm after every conv (stabilises gradients, allows lower LR)
+      - Normalised inputs
+      - Wider classifier head (512 hidden units vs baseline's 256)
+      - No fixed spatial pooling — AdaptiveAvgPool2d(1,1) is resolution-agnostic
+
+    Grad-CAM target: self.features[12]  (last Conv2d, 64->128 channels)
+    Compatible with gradcam_3d.py.
+    """
+    def __init__(self, num_classes: int = 4):
         super().__init__()
-
         self.features = nn.Sequential(
-            nn.Conv2d(3, 16, kernel_size=3, padding=1),
-            nn.ReLU(),
-            nn.MaxPool2d(2),
+            nn.Conv2d(3,   16,  3, padding=1),   # [0]
+            nn.BatchNorm2d(16), nn.ReLU(),        # [1][2]
+            nn.MaxPool2d(2),                       # [3]
 
-            nn.Conv2d(16, 32, kernel_size=3, padding=1),
-            nn.ReLU(),
-            nn.MaxPool2d(2),
+            nn.Conv2d(16,  32,  3, padding=1),   # [4]
+            nn.BatchNorm2d(32), nn.ReLU(),        # [5][6]
+            nn.MaxPool2d(2),                       # [7]
 
-            nn.Conv2d(32, 64, kernel_size=3, padding=1),
-            nn.ReLU(),
-            nn.MaxPool2d(2),
+            nn.Conv2d(32,  64,  3, padding=1),   # [8]
+            nn.BatchNorm2d(64), nn.ReLU(),        # [9][10]
+            nn.MaxPool2d(2),                       # [11]
 
-            nn.Conv2d(64, 128, kernel_size=3, padding=1),
-            nn.ReLU(),
-            nn.MaxPool2d(2),
+            nn.Conv2d(64,  128, 3, padding=1),   # [12] <- Grad-CAM target
+            nn.BatchNorm2d(128), nn.ReLU(),       # [13][14]
+            nn.MaxPool2d(2),                       # [15]
 
-            nn.AdaptiveAvgPool2d((1, 1))
+            nn.AdaptiveAvgPool2d((1, 1)),         # [16]
         )
-
         self.classifier = nn.Sequential(
             nn.Flatten(),
-            nn.Linear(128, 64),
+            nn.Linear(128, 512),
             nn.ReLU(),
             nn.Dropout(0.4),
-            nn.Linear(64, 4)
+            nn.Linear(512, 128),
+            nn.ReLU(),
+            nn.Dropout(0.3),
+            nn.Linear(128, num_classes),
         )
 
     def forward(self, x):
-        x = self.features(x)
-        x = self.classifier(x)
-        return x
+        return self.classifier(self.features(x))
 
-model = BetterBrainTumorCNN().to(device)
-print(model)
 
+model     = BetterBrainTumorCNN().to(DEVICE)
 criterion = nn.CrossEntropyLoss()
-optimizer = optim.Adam(model.parameters(), lr=0.001)
+optimizer = optim.Adam(model.parameters(), lr=LR)
+scheduler = CosineAnnealingLR(optimizer, T_max=NUM_EPOCHS, eta_min=1e-6)
 
-num_epochs = 15
+n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+print(f"Improved CNN — {n_params:,} trainable parameters\n")
 
-train_losses = []
-val_losses = []
-train_accuracies = []
-val_accuracies = []
-
-for epoch in range(num_epochs):
+# ── Training helpers ──────────────────────────────────────────────────────────
+def train_one_epoch():
     model.train()
-    running_train_loss = 0.0
-    correct_train = 0
-    total_train = 0
-
-    for images, labels in train_loader:
-        images, labels = images.to(device), labels.to(device)
-
+    total_loss, correct, total = 0.0, 0, 0
+    for imgs, labels in train_loader:
+        imgs, labels = imgs.to(DEVICE), labels.to(DEVICE)
         optimizer.zero_grad()
-        outputs = model(images)
-        loss = criterion(outputs, labels)
+        logits = model(imgs)
+        loss   = criterion(logits, labels)
         loss.backward()
         optimizer.step()
+        total_loss += loss.item() * imgs.size(0)
+        correct    += (logits.argmax(1) == labels).sum().item()
+        total      += imgs.size(0)
+    return total_loss / total, 100.0 * correct / total
 
-        running_train_loss += loss.item() * images.size(0)
-        _, predicted = torch.max(outputs, 1)
-        total_train += labels.size(0)
-        correct_train += (predicted == labels).sum().item()
 
-    epoch_train_loss = running_train_loss / len(train_dataset)
-    epoch_train_acc = correct_train / total_train
-    train_losses.append(epoch_train_loss)
-    train_accuracies.append(epoch_train_acc)
-
+@torch.no_grad()
+def evaluate(loader):
     model.eval()
-    running_val_loss = 0.0
-    correct_val = 0
-    total_val = 0
+    total_loss, correct, total = 0.0, 0, 0
+    for imgs, labels in loader:
+        imgs, labels = imgs.to(DEVICE), labels.to(DEVICE)
+        logits = model(imgs)
+        total_loss += criterion(logits, labels).item() * imgs.size(0)
+        correct    += (logits.argmax(1) == labels).sum().item()
+        total      += imgs.size(0)
+    return total_loss / total, 100.0 * correct / total
 
-    with torch.no_grad():
-        for images, labels in val_loader:
-            images, labels = images.to(device), labels.to(device)
 
-            outputs = model(images)
-            loss = criterion(outputs, labels)
+# ── Training loop ─────────────────────────────────────────────────────────────
+stopper = EarlyStopping(patience=PATIENCE, delta=DELTA,
+                        checkpoint_path=CKPT, verbose=True, mode="min")
+history = dict(train_loss=[], train_acc=[], val_loss=[], val_acc=[])
 
-            running_val_loss += loss.item() * images.size(0)
-            _, predicted = torch.max(outputs, 1)
-            total_val += labels.size(0)
-            correct_val += (predicted == labels).sum().item()
+hdr = f"{'Epoch':>6}  {'Tr Loss':>9}  {'Tr Acc':>8}  {'Va Loss':>9}  {'Va Acc':>8}  {'LR':>9}  {'ES':>6}"
+print(hdr); print("-" * len(hdr))
 
-    epoch_val_loss = running_val_loss / len(val_dataset)
-    epoch_val_acc = correct_val / total_val
-    val_losses.append(epoch_val_loss)
-    val_accuracies.append(epoch_val_acc)
+for epoch in range(1, NUM_EPOCHS + 1):
+    tr_loss, tr_acc = train_one_epoch()
+    vl_loss, vl_acc = evaluate(val_loader)
+    scheduler.step()
+    lr = optimizer.param_groups[0]["lr"]
 
-    print(
-        f"Epoch [{epoch + 1}/{num_epochs}] "
-        f"Train Loss: {epoch_train_loss:.4f} | Train Acc: {epoch_train_acc:.4f} | "
-        f"Val Loss: {epoch_val_loss:.4f} | Val Acc: {epoch_val_acc:.4f}"
-    )
+    history["train_loss"].append(tr_loss)
+    history["train_acc"].append(tr_acc)
+    history["val_loss"].append(vl_loss)
+    history["val_acc"].append(vl_acc)
 
-plt.figure(figsize=(8, 5))
-plt.plot(range(1, num_epochs + 1), train_losses, label="Train Loss")
-plt.plot(range(1, num_epochs + 1), val_losses, label="Validation Loss")
-plt.xlabel("Epoch")
-plt.ylabel("Loss")
-plt.title("Training and Validation Loss")
-plt.legend()
+    print(f"{epoch:>6}  {tr_loss:>9.5f}  {tr_acc:>7.2f}%  "
+          f"{vl_loss:>9.5f}  {vl_acc:>7.2f}%  {lr:>9.2e}  "
+          f"{stopper.counter}/{PATIENCE}")
+
+    if stopper.step(vl_loss, model):
+        print(f"\n  Early stop at epoch {epoch}. "
+              f"Best val loss {stopper.best_score:.5f} "
+              f"(epoch {stopper.best_epoch + 1}).\n")
+        break
+
+stopper.load_best(model)
+
+# Mirror for gradcam_3d.py compatibility
+shutil.copy(CKPT, "Models/brain_tumor_cnn.pth")
+print("Mirrored -> Models/brain_tumor_cnn.pth")
+
+# ── Test ──────────────────────────────────────────────────────────────────────
+test_loss, test_acc = evaluate(test_loader)
+print(f"\nTest accuracy : {test_acc:.2f}%  |  Test loss : {test_loss:.5f}")
+
+# ── Curves ────────────────────────────────────────────────────────────────────
+xs = range(1, len(history["train_loss"]) + 1)
+fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(13, 5))
+ax1.plot(xs, history["train_loss"], label="Train", color="#2196F3", lw=2)
+ax1.plot(xs, history["val_loss"],   label="Val",   color="#F44336", lw=2)
+ax1.axvline(stopper.best_epoch + 1, ls="--", color="#4CAF50", lw=1.5,
+            label=f"Best (ep {stopper.best_epoch + 1})")
+ax1.set_title("Improved CNN — Loss"); ax1.legend(); ax1.grid(alpha=0.3)
+
+ax2.plot(xs, history["train_acc"], label="Train", color="#2196F3", lw=2)
+ax2.plot(xs, history["val_acc"],   label="Val",   color="#F44336", lw=2)
+ax2.set_title("Improved CNN — Accuracy"); ax2.legend(); ax2.grid(alpha=0.3)
+
 plt.tight_layout()
-plt.savefig("Plots/loss_curve.png")
-plt.show()
-
-plt.figure(figsize=(8, 5))
-plt.plot(range(1, num_epochs + 1), train_accuracies, label="Train Accuracy")
-plt.plot(range(1, num_epochs + 1), val_accuracies, label="Validation Accuracy")
-plt.xlabel("Epoch")
-plt.ylabel("Accuracy")
-plt.title("Training and Validation Accuracy")
-plt.legend()
-plt.tight_layout()
-plt.savefig("plots/accuracy_curve.png")
-plt.show()
-
-torch.save(model.state_dict(), "Models/brain_tumor_cnn.pth")
-print("Model saved as Models/brain_tumor_cnn.pth")
-print("Loss curve saved as Plots/loss_curve.png")
-print("Accuracy curve saved as Plots/accuracy_curve.png")
+plt.savefig("Plots/improved_curves.png", dpi=150); plt.close()
+print("Saved: Plots/improved_curves.png")
+print(f"Best model: {CKPT}")
