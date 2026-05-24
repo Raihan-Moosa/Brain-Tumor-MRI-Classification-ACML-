@@ -1,6 +1,6 @@
 """
 train_improved.py  —  Improved CNN
-====================================
+
 Step up from baseline:
   + BatchNorm after every conv block     (more stable training)
   + Higher resolution: 256x256          (vs 128 baseline)
@@ -28,13 +28,13 @@ import shutil
 
 from stopping import EarlyStopping
 
-# ── Reproducibility ───────────────────────────────────────────────────────────
+# Reproducibility 
 SEED = 42
 random.seed(SEED)
 np.random.seed(SEED)
 torch.manual_seed(SEED)
 
-# ── Paths ─────────────────────────────────────────────────────────────────────
+# Paths 
 TRAIN = "Dataset/train"
 VAL   = "Dataset/val"
 TEST  = "Dataset/test"
@@ -43,7 +43,7 @@ os.makedirs("Models", exist_ok=True)
 os.makedirs("Plots",  exist_ok=True)
 CKPT = "Models/best_improved.pth"
 
-# ── Hyper-parameters ──────────────────────────────────────────────────────────
+# Hyper-parameters 
 IMG_SIZE    = 256
 BATCH       = 16
 NUM_EPOCHS  = 80
@@ -55,8 +55,8 @@ NUM_WORKERS = 0
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Device: {DEVICE}")
 
-# ── Transforms ────────────────────────────────────────────────────────────────
-# Normalisation added vs baseline — this is one of the explicit improvements
+# Transforms 
+# Normalisation added vs baseline —  explicit improvement
 train_tf = transforms.Compose([
     transforms.Resize((IMG_SIZE, IMG_SIZE)),
     transforms.RandomHorizontalFlip(),
@@ -70,7 +70,7 @@ eval_tf = transforms.Compose([
     transforms.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5]),
 ])
 
-# ── Data ──────────────────────────────────────────────────────────────────────
+# Data 
 train_ds = datasets.ImageFolder(TRAIN, transform=train_tf)
 val_ds   = datasets.ImageFolder(VAL,   transform=eval_tf)
 test_ds  = datasets.ImageFolder(TEST,  transform=eval_tf)
@@ -85,7 +85,7 @@ test_loader  = DataLoader(test_ds,  batch_size=BATCH, shuffle=False,
 print(f"Classes : {train_ds.classes}")
 print(f"Train: {len(train_ds)}  Val: {len(val_ds)}  Test: {len(test_ds)}\n")
 
-# ── Model ─────────────────────────────────────────────────────────────────────
+# Model 
 class BetterBrainTumorCNN(nn.Module):
     """
     Improvements over baseline:
@@ -141,7 +141,7 @@ scheduler = CosineAnnealingLR(optimizer, T_max=NUM_EPOCHS, eta_min=1e-6)
 n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
 print(f"Improved CNN — {n_params:,} trainable parameters\n")
 
-# ── Training helpers ──────────────────────────────────────────────────────────
+# Training helpers 
 def train_one_epoch():
     model.train()
     total_loss, correct, total = 0.0, 0, 0
@@ -171,7 +171,7 @@ def evaluate(loader):
     return total_loss / total, 100.0 * correct / total
 
 
-# ── Training loop ─────────────────────────────────────────────────────────────
+# Training loop 
 stopper = EarlyStopping(patience=PATIENCE, delta=DELTA,
                         checkpoint_path=CKPT, verbose=True, mode="min")
 history = dict(train_loss=[], train_acc=[], val_loss=[], val_acc=[])
@@ -206,11 +206,11 @@ stopper.load_best(model)
 shutil.copy(CKPT, "Models/brain_tumor_cnn.pth")
 print("Mirrored -> Models/brain_tumor_cnn.pth")
 
-# ── Test ──────────────────────────────────────────────────────────────────────
+# Test 
 test_loss, test_acc = evaluate(test_loader)
 print(f"\nTest accuracy : {test_acc:.2f}%  |  Test loss : {test_loss:.5f}")
 
-# ── Curves ────────────────────────────────────────────────────────────────────
+# Curves 
 xs = range(1, len(history["train_loss"]) + 1)
 fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(13, 5))
 ax1.plot(xs, history["train_loss"], label="Train", color="#2196F3", lw=2)
