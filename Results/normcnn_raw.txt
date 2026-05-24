@@ -1,0 +1,22 @@
+Model  : NormCNN (Improved)
+Dataset: RAW
+Weights: Models/best_improved.pth
+Test Accuracy: 0.8065  (80.65%)
+
+Classification Report:
+              precision    recall  f1-score   support
+
+      glioma     0.7267    0.8074    0.7649       270
+  meningioma     0.7033    0.7111    0.7072       270
+     notumor     0.9044    0.9111    0.9077       270
+   pituitary     0.9149    0.7963    0.8515       270
+
+    accuracy                         0.8065      1080
+   macro avg     0.8123    0.8065    0.8078      1080
+weighted avg     0.8123    0.8065    0.8078      1080
+
+Confusion Matrix:
+[[218  43   5   4]
+ [ 44 192  20  14]
+ [ 11  11 246   2]
+ [ 27  27   1 215]]
