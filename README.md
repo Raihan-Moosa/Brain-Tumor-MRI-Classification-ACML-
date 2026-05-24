@@ -10,11 +10,7 @@ python -m venv .venv
 .\.venv\Scripts\activate
 pip install -r requirements.txt
 
-# Prepare the dataset
-python split_dataset.py            # split raw images into Dataset/train, Dataset/val, Dataset/test
-python data_setup.py              # optional sanity check of the split dataset
-
-# Train models on raw data
+# Train models on dataset 
 python train_baseline.py
 python train_improved.py
 python MRI_classifier.py
