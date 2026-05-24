@@ -55,8 +55,8 @@ NUM_WORKERS = 0
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Device: {DEVICE}")
 
-# ── Transforms ────────────────────────────────────────────────────────────────
-# Normalisation added vs baseline — this is one of the explicit improvements
+# Transforms 
+# We added normalisation vs baseline — this is one of the explicit improvements
 train_tf = transforms.Compose([
     transforms.Resize((IMG_SIZE, IMG_SIZE)),
     transforms.RandomHorizontalFlip(),
@@ -141,7 +141,7 @@ scheduler = CosineAnnealingLR(optimizer, T_max=NUM_EPOCHS, eta_min=1e-6)
 n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
 print(f"Improved CNN — {n_params:,} trainable parameters\n")
 
-# ── Training helpers ──────────────────────────────────────────────────────────
+# Training helpers 
 def train_one_epoch():
     model.train()
     total_loss, correct, total = 0.0, 0, 0
@@ -171,7 +171,7 @@ def evaluate(loader):
     return total_loss / total, 100.0 * correct / total
 
 
-# ── Training loop ─────────────────────────────────────────────────────────────
+# Training loop 
 stopper = EarlyStopping(patience=PATIENCE, delta=DELTA,
                         checkpoint_path=CKPT, verbose=True, mode="min")
 history = dict(train_loss=[], train_acc=[], val_loss=[], val_acc=[])
@@ -206,11 +206,11 @@ stopper.load_best(model)
 shutil.copy(CKPT, "Models/brain_tumor_cnn_roi.pth")
 print("Mirrored -> Models/brain_tumor_cnn_roi.pth")
 
-# ── Test ──────────────────────────────────────────────────────────────────────
+# Test 
 test_loss, test_acc = evaluate(test_loader)
 print(f"\nTest accuracy : {test_acc:.2f}%  |  Test loss : {test_loss:.5f}")
 
-# ── Curves ────────────────────────────────────────────────────────────────────
+# Curves 
 xs = range(1, len(history["train_loss"]) + 1)
 fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(13, 5))
 ax1.plot(xs, history["train_loss"], label="Train", color="#2196F3", lw=2)
