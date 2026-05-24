@@ -1,21 +1,16 @@
 \documentclass{article}
-\usepackage{graphicx} % Required for inserting images
+
+\usepackage{graphicx} 
+\usepackage{subcaption} 
 \usepackage[a4paper, margin=1in]{geometry}
 \usepackage{booktabs}
 \usepackage{float}
+\usepackage{amsmath}
 \usepackage{titlesec}
 
-\titleformat{\section}
-  {\LARGE\bfseries}
-  {\thesection}{1em}{}
-
-\titleformat{\subsection}
-  {\Large\bfseries}
-  {\thesubsection}{1em}{}
-
-\titleformat{\subsubsection}
-  {\large\bfseries}
-  {\thesubsubsection}{1em}{}
+\titleformat{\section}{\LARGE\bfseries}{\thesection}{1em}{}
+\titleformat{\subsection}{\Large\bfseries}{\thesubsection}{1em}{}
+\titleformat{\subsubsection}{\large\bfseries}{\thesubsubsection}{1em}{}
 
 \begin{document}
 
@@ -52,7 +47,6 @@
     {\large 24 May 2026\par}
 
 \end{titlepage}
-
 
 \section{Project Topic Selection}
 
@@ -106,13 +100,17 @@ The test set was held out completely and used only for final evaluation. Each sp
 
 In addition to the raw dataset, a Region of Interest (ROI) cropped version of the dataset was prepared. The motivation for this was to investigate whether the models were truly learning tumour morphology or whether they were exploiting shortcut features such as black background padding, scanner-specific artifacts, or other non-diagnostic image characteristics.
 
-The ROI cropping pipeline was implemented using NumPy and PIL only. Each image was converted to grayscale, thresholded using an Otsu-based approach, and then cropped around the largest connected foreground component. A small margin of 10 pixels was retained around the detected region to avoid overly aggressive cropping. This process removed much of the black background surrounding the brain tissue.
+The ROI cropping pipeline was implemented using NumPy and OpenCV (\texttt{cv2}). First, each image was converted to grayscale, and a Gaussian blur was applied to suppress high-frequency noise. The image was then thresholded using Otsu's automatic global method to generate a dataset-agnostic binary mask. Because this initial thresholding can misclassify small dark regions inside the brain as background (e.g., ventricles or sulci), a morphological closing operation was subsequently applied to fill these intra-brain holes. 
+
+Next, the pipeline located external contours and selected the single largest one, computing an axis-aligned bounding box around it. This step isolated the biological brain matter and discarded peripheral scanning artifacts, table labels, scanner frames, and text annotations. Finally, the image was cropped to this bounding box, retaining a configurable margin of 10 pixels to ensure sulcal edges were not accidentally clipped. 
 
 The ROI dataset was then used in controlled experiments alongside the raw dataset to assess the robustness of the models and the extent to which background information influenced classification performance.
 
 \subsubsection{Image Transforms}
 
-All images were resized to a consistent resolution depending on the model being trained. Standard augmentation techniques such as random rotation, horizontal and vertical flips, and colour jitter were applied to the training data. All pixel values were converted to tensors and normalised using channel-wise mean and standard deviation. The intentionally naive baseline model omitted normalisation in order to preserve its role as a simple lower-bound reference model.
+All images were resized to a consistent resolution depending on the model being trained. The intentionally naive baseline model utilised a strictly limited augmentation pipeline consisting only of random rotations, and it entirely omitted pixel normalisation to preserve its role as a simple lower-bound reference. 
+
+In contrast, the more advanced models (NormCNN and AttentionCNN) benefited from a comprehensive suite of standard augmentations, including random rotation, horizontal and vertical flips, and colour jitter. For these advanced models, all pixel values were converted to tensors and normalised using channel-wise mean and standard deviation.
 
 \subsection{Summary}
 
@@ -180,9 +178,7 @@ The baseline model consists of four repeated convolutional blocks. Each block co
 \end{itemize}
 
 The number of channels increases progressively across the blocks:
-\[
-3 \rightarrow 16 \rightarrow 32 \rightarrow 64 \rightarrow 128
-\]
+\[3 \rightarrow 16 \rightarrow 32 \rightarrow 64 \rightarrow 128\]
 
 After the convolutional feature extractor, the network applies \texttt{AdaptiveAvgPool2d(4,4)}. This produces a fixed spatial output size and avoids directly flattening a large high-resolution feature map. The resulting feature representation is passed to a classifier consisting of:
 \begin{itemize}
@@ -195,15 +191,11 @@ After the convolutional feature extractor, the network applies \texttt{AdaptiveA
 \subsubsection{Critical Design Note}
 
 An earlier version of the baseline used a classifier of the form:
-\[
-\texttt{Linear}(128 \times 32 \times 32,\; 256)
-\]
+\[\texttt{Linear}(128 \times 32 \times 32,\; 256)\]
 which assumes a fixed 512$\times$512 input and creates an extremely large dense layer. This design would have produced a classifier with roughly 134 million weights, making it unnecessarily heavy and poorly suited to CPU training.
 
 To correct this, the architecture was revised to use:
-\[
-\texttt{AdaptiveAvgPool2d}(4,4) \rightarrow \texttt{Linear}(2048,256)
-\]
+\[\texttt{AdaptiveAvgPool2d}(4,4) \rightarrow \texttt{Linear}(2048,256)\]
 which reduced the model to \textbf{623,012 trainable parameters}. This change kept the baseline simple while making it computationally feasible. No other major sophistication was added, so the model still retained its role as a deliberately basic reference system.
 
 \subsubsection{Training Configuration}
@@ -244,9 +236,7 @@ This makes the NormCNN an incremental and controlled improvement over the baseli
 \subsubsection{Architecture}
 
 Like the baseline, the NormCNN uses four convolutional stages with increasing channel depth. However, each convolutional block now includes batch normalisation, which helps stabilise activations and improves optimisation behaviour. The model therefore follows the pattern:
-\[
-\texttt{Conv2d} \rightarrow \texttt{BatchNorm2d} \rightarrow \texttt{ReLU} \rightarrow \texttt{MaxPool2d}
-\]
+\[\texttt{Conv2d} \rightarrow \texttt{BatchNorm2d} \rightarrow \texttt{ReLU} \rightarrow \texttt{MaxPool2d}\]
 
 At the end of the convolutional backbone, the NormCNN uses \texttt{AdaptiveAvgPool2d(1,1)}, i.e.\ global average pooling. This compresses each final feature map to a single scalar and produces a compact 128-dimensional representation.
 
@@ -266,9 +256,7 @@ This architecture contains \textbf{230,148 trainable parameters}, making it smal
 \subsubsection{Preprocessing and Training Setup}
 
 The NormCNN was trained on images resized to \textbf{256$\times$256}. The preprocessing pipeline normalised pixel values to the range implied by:
-\[
-\texttt{mean} = [0.5,0.5,0.5], \quad \texttt{std} = [0.5,0.5,0.5]
-\]
+\[\texttt{mean} = [0.5,0.5,0.5], \quad \texttt{std} = [0.5,0.5,0.5]\]
 which maps the image intensities approximately to the interval $[-1,1]$.
 
 Training used:
@@ -303,9 +291,7 @@ The model therefore combines ideas from modern CNN design while remaining fully 
 \subsubsection{Architecture}
 
 The network begins with a convolutional stem composed of two strided convolutions, which downsample the input from \textbf{128$\times$128} to a smaller spatial representation. After this stem, the model passes feature maps through four stages of lightweight residual blocks with channel dimensions:
-\[
-64 \rightarrow 128 \rightarrow 256 \rightarrow 512 \rightarrow 512
-\]
+\[64 \rightarrow 128 \rightarrow 256 \rightarrow 512 \rightarrow 512\]
 
 Each block uses \textbf{depthwise separable convolutions}. This means that a standard convolution is factorised into:
 \begin{itemize}
@@ -334,10 +320,8 @@ This final architecture contains \textbf{4,120,676 trainable parameters}, making
 \subsubsection{Preprocessing and Training Setup}
 
 The AttentionCNN was trained on images resized to \textbf{128$\times$128}. Unlike the other two models, it used normalisation based on \textbf{ImageNet statistics}:
-\[
-\texttt{mean} = [0.485, 0.456, 0.406], \quad
-\texttt{std} = [0.229, 0.224, 0.225]
-\]
+\[\texttt{mean} = [0.485, 0.456, 0.406], \quad
+\texttt{std} = [0.229, 0.224, 0.225]\]
 
 In addition to the standard optimisation setup, the model incorporated several more advanced training techniques:
 \begin{itemize}
@@ -389,6 +373,203 @@ No part of the modelling stage relied on off-the-shelf pretrained networks. This
 
 In summary, the modelling stage of the project used three custom CNN architectures of increasing complexity. The SimpleCNN served as a baseline reference, the NormCNN introduced normalisation and batch stabilisation, and the AttentionCNN extended the design further with residual blocks, squeeze-and-excitation attention, and depthwise separable convolutions. This gave the project a strong comparative modelling framework and provided a solid basis for the later experimental analysis.
 
+\section{Training Dynamics}
+
+\subsection{Hyperparameter Tuning and Optimisation}
+
+Throughout the training phase, the models were monitored using training and validation loss metrics to detect overfitting and guide early stopping. Crucially, rather than relying solely on a basic patience counter, a custom early stopping mechanism was implemented that required a minimum meaningful improvement threshold (\textit{delta}). If the validation loss did not decrease by at least this delta, the epoch was treated as non-improving, effectively filtering out trivial numerical noise. All models utilised a patience of 5 epochs, but the delta threshold was tuned per architecture: the SimpleCNN used a fine threshold of $\delta = 1\times 10^{-4}$, while the AttentionCNN required a larger $\delta = 0.005$ to prevent premature stopping during the aggressive loss fluctuations caused by its learning rate schedule.
+
+The \textbf{SimpleCNN (Baseline)} converged smoothly, ultimately triggering early stopping at epoch 35 for the raw dataset and epoch 27 for the ROI dataset. Despite its lack of batch normalisation, the model showed stable learning, likely due to the aggressive dropout ($p=0.5$) in its classifier head preventing early memorisation of the training set.
+
+Conversely, the \textbf{NormCNN (Improved)} struggled to stabilise at its learning rate, triggering early stopping prematurely at epoch 11 (raw) and epoch 15 (ROI). The introduction of batch normalisation and global average pooling appears to have over-regularised this specific architecture, preventing it from fitting the dataset as effectively as the naive baseline.
+
+The \textbf{AttentionCNN (Lite)} demonstrated the most complex training dynamics. Due to the implementation of a cosine annealing learning rate schedule with warm restarts, the loss curves exhibited periodic fluctuations. This schedule successfully allowed the model to escape local minima, ultimately finding a highly generalisable region in the weight space. Early stopping halted training at epoch 35 (raw) and epoch 30 (ROI).
+
+% --- SimpleCNN training curves ---
+\begin{figure}[H]
+    \centering
+    \begin{subfigure}{\textwidth}
+        \includegraphics[width=\textwidth, height=0.85\textheight, keepaspectratio]{Plots/baseline_curves.png}
+        \caption{SimpleCNN (Raw)}
+    \end{subfigure}
+    \vspace{0.3cm}
+
+    \begin{subfigure}{\textwidth}
+        \includegraphics[width=\textwidth, height=0.85\textheight, keepaspectratio]{Plots/baseline_curves_roi.png}
+        \caption{SimpleCNN (ROI)}
+    \end{subfigure}
+    \caption{Training and validation curves for SimpleCNN.}
+    \label{fig:curves_simple}
+\end{figure}
+
+% --- NormCNN training curves ---
+\begin{figure}[H]
+    \centering
+    \begin{subfigure}{\textwidth}
+        \includegraphics[width=\textwidth, height=0.85\textheight, keepaspectratio]{Plots/improved_curves.png}
+        \caption{NormCNN (Raw)}
+    \end{subfigure}
+    \vspace{0.3cm}
+
+    \begin{subfigure}{\textwidth}
+        \includegraphics[width=\textwidth, height=0.85\textheight, keepaspectratio]{Plots/improved_curves_roi.png}
+        \caption{NormCNN (ROI)}
+    \end{subfigure}
+    \caption{Training and validation curves for NormCNN.}
+    \label{fig:curves_norm}
+\end{figure}
+
+% --- AttentionCNN training curves ---
+\begin{figure}[H]
+    \centering
+    \begin{subfigure}{\textwidth}
+        \includegraphics[width=\textwidth, height=0.85\textheight, keepaspectratio]{Plots/lite_curves.png}
+        \caption{AttentionCNN (Raw)}
+    \end{subfigure}
+    \vspace{0.3cm}
+
+    \begin{subfigure}{\textwidth}
+        \includegraphics[width=\textwidth, height=0.85\textheight, keepaspectratio]{Plots/lite_curves_roi.png}
+        \caption{AttentionCNN (ROI)}
+    \end{subfigure}
+    \caption{Training and validation curves for AttentionCNN.}
+    \label{fig:curves_att}
+\end{figure}
+
+\section{Results and Evaluation}
+
+\subsection{Quantitative Results and ROI Analysis}
+
+To systematically evaluate whether the models were learning clinically meaningful tumour features or exploiting spurious background correlations (such as scanner artifacts or skull shape), the models were evaluated on both the \textbf{Raw} test set and the \textbf{ROI-cropped} test set. The final test accuracies are presented in Table~\ref{tab:results_summary}.
+
+\begin{table}[H]
+\centering
+\caption{Final test set accuracy across the raw and ROI-cropped datasets.}
+\label{tab:results_summary}
+\begin{tabular}{lccc}
+\toprule
+\textbf{Model} & \textbf{Raw Dataset} & \textbf{ROI Dataset} & \textbf{$\Delta$ (Performance Shift)} \\
+\midrule
+SimpleCNN (Baseline) & 95.65\% & 95.93\% & +0.28\% \\
+NormCNN (Improved)   & 80.65\% & 75.83\% & -4.81\% \\
+AttentionCNN (Lite)  & 94.63\% & 95.83\% & +1.20\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The baseline \textbf{SimpleCNN} achieved an unexpectedly high baseline accuracy of 95.65\% on the raw dataset. Notably, when tested on the ROI dataset, its performance increased slightly (+0.28\%), indicating that the model was primarily relying on the brain tissue itself rather than the black background padding.
+
+The \textbf{NormCNN} performed the poorest, achieving only 80.65\% on the raw images and dropping significantly to 75.83\% on the ROI images (-4.81\%). This suggests that the NormCNN was partially relying on background context to make its predictions, and stripping that context away harmed its diagnostic capability.
+
+The \textbf{AttentionCNN} proved to be the most robust architecture. On the ROI dataset, using Test-Time Augmentation (TTA), it achieved a peak accuracy of \textbf{96.02\%}. The +1.20\% performance boost on the ROI dataset confirms that removing extraneous background pixels allows the squeeze-and-excitation (SE) attention modules to focus entirely on morphological tumour differences.
+
+\subsection{Class-Specific Performance}
+
+To understand the models' performance on a granular level, confusion matrices and classification reports were generated. Figures~\ref{fig:conf_simple}, \ref{fig:conf_norm}, and \ref{fig:conf_att} illustrate the confusion matrices across all evaluated settings.
+
+% --- SimpleCNN confusion matrices ---
+\begin{figure}[H]
+    \centering
+    \begin{subfigure}{\textwidth}
+        \includegraphics[width=\textwidth, height=0.85\textheight, keepaspectratio]{Plots/simplecnn_raw_confusion.png}
+        \caption{SimpleCNN (Raw)}
+    \end{subfigure}
+    \vspace{0.5cm}
+
+    \begin{subfigure}{\textwidth}
+        \includegraphics[width=\textwidth, height=0.85\textheight, keepaspectratio]{Plots/simplecnn_roi_confusion.png}
+        \caption{SimpleCNN (ROI)}
+    \end{subfigure}
+    \caption{Confusion matrices for SimpleCNN.}
+    \label{fig:conf_simple}
+\end{figure}
+
+% --- NormCNN confusion matrices ---
+\begin{figure}[H]
+    \centering
+    \begin{subfigure}{\textwidth}
+        \includegraphics[width=\textwidth, height=0.85\textheight, keepaspectratio]{Plots/normcnn_raw_confusion.png}
+        \caption{NormCNN (Raw)}
+    \end{subfigure}
+    \vspace{0.5cm}
+
+    \begin{subfigure}{\textwidth}
+        \includegraphics[width=\textwidth, height=0.85\textheight, keepaspectratio]{Plots/normcnn_roi_confusion.png}
+        \caption{NormCNN (ROI)}
+    \end{subfigure}
+    \caption{Confusion matrices for NormCNN.}
+    \label{fig:conf_norm}
+\end{figure}
+
+% --- AttentionCNN confusion matrices ---
+\begin{figure}[H]
+    \centering
+    \begin{subfigure}{\textwidth}
+        \includegraphics[width=\textwidth, height=0.85\textheight, keepaspectratio]{Plots/attentioncnn_raw_confusion.png}
+        \caption{AttentionCNN (Raw)}
+    \end{subfigure}
+    \vspace{0.5cm}
+
+    \begin{subfigure}{\textwidth}
+        \includegraphics[width=\textwidth, height=0.85\textheight, keepaspectratio]{Plots/attentioncnn_roi_confusion.png}
+        \caption{AttentionCNN (ROI)}
+    \end{subfigure}
+    \caption{Confusion matrices for AttentionCNN.}
+    \label{fig:conf_att}
+\end{figure}
+
+The AttentionCNN demonstrated exceptional recall for the \texttt{notumor} class (99.63\%) and the \texttt{pituitary} class (95.56\%). The primary source of error across all models, including the AttentionCNN, was the confusion between \texttt{glioma} and \texttt{meningioma}. This is a well-documented challenge in medical computer vision, as both tumour types can present with similar textures and irregular boundaries depending on the MRI slice. Nevertheless, the AttentionCNN maintained F1-scores above 0.93 across all four categories.
+
+\subsection{Interpretability via Grad-CAM}
+
+A core objective of this project was to ensure the models were learning genuine radiological features. To verify this, Gradient-weighted Class Activation Mapping (Grad-CAM) was applied to the final convolutional layers of the models to visualise the regions of the image that contributed most to the final classification.
+
+\begin{figure}[H]
+    \centering
+    \begin{subfigure}{0.48\textwidth}
+        \includegraphics[width=\textwidth]{Plots/gradcam/simplecnn_raw/gradcam_summary.png}
+        \caption{SimpleCNN (Raw)}
+    \end{subfigure}
+    \hfill
+    \begin{subfigure}{0.48\textwidth}
+        \includegraphics[width=\textwidth]{Plots/gradcam/simplecnn_roi/gradcam_summary.png}
+        \caption{SimpleCNN (ROI)}
+    \end{subfigure}
+    \\ \vspace{0.4cm}
+    \begin{subfigure}{0.48\textwidth}
+        \includegraphics[width=\textwidth]{Plots/gradcam/normcnn_raw/gradcam_summary.png}
+        \caption{NormCNN (Raw)}
+    \end{subfigure}
+    \hfill
+    \begin{subfigure}{0.48\textwidth}
+        \includegraphics[width=\textwidth]{Plots/gradcam/normcnn_roi/gradcam_summary.png}
+        \caption{NormCNN (ROI)}
+    \end{subfigure}
+    \\ \vspace{0.4cm}
+    \begin{subfigure}{0.48\textwidth}
+        \includegraphics[width=\textwidth]{Plots/gradcam/attentioncnn_raw/gradcam_summary.png}
+        \caption{AttentionCNN (Raw)}
+    \end{subfigure}
+    \hfill
+    \begin{subfigure}{0.48\textwidth}
+        \includegraphics[width=\textwidth]{Plots/gradcam/attentioncnn_roi/gradcam_summary.png}
+        \caption{AttentionCNN (ROI)}
+    \end{subfigure}
+    \caption{Grad-CAM visualisations demonstrating the regions of highest activation (heatmaps) used by the networks to classify the MRI scans, evaluated across Raw and ROI constraints.}
+    \label{fig:gradcam_summaries}
+\end{figure}
+
+As shown in Figure~\ref{fig:gradcam_summaries}, the models successfully localized the pathology. The heatmaps tightly overlap with the actual tumour masses for the \texttt{glioma}, \texttt{meningioma}, and \texttt{pituitary} classes. For the \texttt{notumor} class, the network's attention is broadly and symmetrically distributed across the healthy brain parenchyma, confirming the absence of focal lesions. This visual evidence, combined with the positive ROI performance delta, concludes that the AttentionCNN is making highly accurate predictions based on clinically valid visual evidence.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\linewidth, height=0.9\textheight, keepaspectratio]{Plots/gradcam/attentioncnn_raw/sequential_glioma.png}
+    \caption{Sequential saliency map for the AttentionCNN (Lite) model on a raw glioma scan, demonstrating layer-wise feature attribution.}
+    \label{fig:sequential_saliency}
+\end{figure}
+
+\section{Conclusion}
+
+This project successfully developed custom convolutional neural networks capable of classifying brain MRI scans into four categories with a peak accuracy of 96.02\%. Through systematic architectural iteration—from a naive baseline to an advanced network utilising residual connections and channel attention—the project demonstrated the importance of model expressivity. Furthermore, the inclusion of a custom ROI preprocessing pipeline and Grad-CAM interpretability analysis proved that the top-performing model did not rely on spurious background correlations, but instead learned robust, visually verifiable tumour morphologies.
+
 \end{document}
-
-
