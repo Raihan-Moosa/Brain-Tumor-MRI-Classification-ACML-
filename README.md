@@ -28,16 +28,6 @@ python MRI_classifier_roi.py
 python evaluate.py
 python gradcam.py --all
 ```
-
-Alternatively, if you have GNU Make installed, use the repository Makefile:
-
-```bash
-make setup       # create .venv and install dependencies
-make train       # run MRI_classifier.py
-make evaluate    # run evaluate.py
-make all         # setup, train, and evaluate
-```
-
 ## Models
 
 | Script | Model | Accuracy |
