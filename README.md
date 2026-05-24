@@ -2,45 +2,40 @@
 
 Automated classification system for brain tumor types using deep convolutional neural networks.
 
+## Installing uv (Prerequisite)
+
+This project uses `uv` for lightning-fast dependency management. If you do not have `uv` installed, install it first:
+
+* Windows: `powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"`
+* macOS/Linux: `curl -LsSf https://astral.sh/uv/install.sh | sh`
+
 ## Quick Start
 
-```bash
-# Setup
-python -m venv .venv
-.\.venv\Scripts\activate
-pip install -r requirements.txt
+Follow these commands in your terminal to run the pipeline:
 
-# Prepare the dataset
-python split_dataset.py            # split raw images into Dataset/train, Dataset/val, Dataset/test
-python data_setup.py              # optional sanity check of the split dataset
+* 1. Sync dependencies and create virtual environment: `uv sync`
+* 2. Activate the environment (Windows): `.venv\\Scripts\\activate`
+* 3. Activate the environment (macOS/Linux): `source .venv/bin/activate`
 
-# Train models on raw data
-python train_baseline.py
-python train_improved.py
-python MRI_classifier.py
+(Note: Ensure your raw images are already organized inside the `Dataset/` folder before proceeding).
 
-# Visualize AttentionCNN training saliency
-python gradcam.py --sequential
+* 4. Train models on raw data:
+  * `python train_baseline.py`
+  * `python train_improved.py`
+  * `python MRI_classifier.py`
 
-# Build ROI dataset and train ROI models
-python roicrop.py --input_dir Dataset --output_dir Dataset/ROI
-python train_baseline_roi.py
-python train_improved_roi.py
-python MRI_classifier_roi.py
+* 5. Visualize BrainTumorNet-Lite training saliency (requires models trained above):
+  * `python gradcam.py --sequential`
 
-# Final evaluation and visualization
-python evaluate.py
-python gradcam.py --all
-```
+* 6. Build ROI dataset and train ROI models:
+  * `python roicrop.py --input_dir Dataset --output_dir Dataset/ROI`
+  * `python train_baseline_roi.py`
+  * `python train_improved_roi.py`
+  * `python MRI_classifier_roi.py`
 
-Alternatively, if you have GNU Make installed, use the repository Makefile:
-
-```bash
-make setup       # create .venv and install dependencies
-make train       # run MRI_classifier.py
-make evaluate    # run evaluate.py
-make all         # setup, train, and evaluate
-```
+* 7. Final evaluation and visualization:
+  * `python evaluate.py --model all`
+  * `python gradcam.py --all`
 
 ## Models
 
@@ -52,12 +47,10 @@ make all         # setup, train, and evaluate
 
 ## Dataset Structure
 
-```
 Dataset/
 ├── train/ (4 tumor classes)
 ├── val/   (4 tumor classes)
 └── test/  (4 tumor classes)
-```
 
 ## Output Files
 
@@ -67,12 +60,12 @@ Dataset/
 
 ## Full Documentation
 
-See **[INSTRUCTIONS.md](INSTRUCTIONS.md)** for detailed setup, parameter tuning, and troubleshooting.
+See **INSTRUCTIONS.md** for detailed setup, parameter tuning, and troubleshooting.
 
 ## System Requirements
 
 - Python 3.9+
-- NumPy < 2.0 (important for PyTorch compatibility)
+- NumPy < 2.0 (handled automatically by uv)
 - ~2GB RAM (CPU) or GPU with 4GB+ VRAM
 - CPU: ~30-60 min training time | GPU: ~5-10 min
 
@@ -84,16 +77,3 @@ See **[INSTRUCTIONS.md](INSTRUCTIONS.md)** for detailed setup, parameter tuning,
 ✓ CPU & GPU support  
 ✓ Reproducible results (fixed seeds)  
 ✓ Automatic checkpoint saving
-
-## Troubleshooting
-
-**NumPy compatibility error?**
-```bash
-pip install "numpy<2"
-```
-
-**Out of memory?**
-- Reduce `BATCH_SIZE` in the training script
-- Use smaller image size
-
-**More info:** See INSTRUCTIONS.md section 8.
