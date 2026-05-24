@@ -8,19 +8,19 @@ __pycache__/
 venv/
 
 # Dataset and generated images
-Dataset/
+# NOTE: tracked project files are kept in git; only local/generated artifacts are ignored.
 Outputs.txt
 outputs/
 outputs_lite/
-Plots/
-Results/
-Models/
-Training/models/
 
-# PyTorch checkpoints and temporary files
-*.pth
-*.pt
-*.ckpt
+# Virtual environments
+.venv/
+venv/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
 
 # Jupyter Notebook checkpoints
 .ipynb_checkpoints/
