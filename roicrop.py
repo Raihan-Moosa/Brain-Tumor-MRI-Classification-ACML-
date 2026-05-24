@@ -1,10 +1,8 @@
 """
-roi_crop_pipeline.py
+roicrop.py
 ====================
-Step 6 – Region of Interest (ROI) Masking Pipeline
+Region of Interest (ROI) Masking Pipeline
 ----------------------------------------------------
-Motivation
-----------
 Grad-CAM analysis revealed that our classifier exploits peripheral scanning
 artifacts (edge-padding, cropping boundaries, skull silhouette) rather than
 tumour pathology. This script isolates the biological brain matter so that
@@ -40,14 +38,12 @@ Directory contract
 
 Usage
 -----
-    python roi_crop_pipeline.py \
-        --input_dir  /data/raw/brain_tumor_mri \
-        --output_dir /data/processed/brain_tumor_roi \
+    python roicrop.py \
+        --input_dir  Dataset \
+        --output_dir Dataset/ROI \ - ONLY THESE 2 OPTIONS STRICTLY NECESSARY
         --output_size 224 \
         --margin 10 \
         --workers 4
-
-Dependencies: opencv-python, numpy, tqdm
 """
 
 import argparse
@@ -60,13 +56,13 @@ import cv2
 import numpy as np
 from tqdm import tqdm
 
-# ---------------------------------------------------------------------------
-# Configuration defaults (also exposed as CLI arguments)
-# ---------------------------------------------------------------------------
-DEFAULT_OUTPUT_SIZE: int = 224   # pixels – square output
-DEFAULT_MARGIN: int = 10         # extra padding around bounding box (pixels)
-DEFAULT_BLUR_KSIZE: int = 5      # Gaussian kernel side length (must be odd)
-DEFAULT_MORPH_KSIZE: int = 15    # morphological closing kernel side length
+#---------------------------------------------------------------------------
+#Configuration defaults
+#---------------------------------------------------------------------------
+DEFAULT_OUTPUT_SIZE: int = 224   #pixels – square output
+DEFAULT_MARGIN: int = 10         #extra padding around bounding box (pixels)
+DEFAULT_BLUR_KSIZE: int = 5      #Gaussian kernel side length (must be odd)
+DEFAULT_MORPH_KSIZE: int = 15    #morphological closing kernel side length
 VALID_EXTENSIONS: set = {".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".tif"}
 
 logging.basicConfig(
@@ -77,22 +73,19 @@ logging.basicConfig(
 log = logging.getLogger(__name__)
 
 
-# ---------------------------------------------------------------------------
-# Core per-image processing function
-# ---------------------------------------------------------------------------
+#---------------------------------------------------------------------------
+#Core per-image processing function
+#---------------------------------------------------------------------------
 
 def otsu_threshold(grey: np.ndarray) -> np.ndarray:
     """
-    Apply Otsu's method to produce a binary mask.
+    Otsu's method  - produce a binary mask.
 
     Otsu's algorithm selects the threshold T* that minimises within-class
     variance across the foreground/background pixel distributions:
 
         T* = argmin_T [ w_bg(T) * σ²_bg(T)  +  w_fg(T) * σ²_fg(T) ]
-
-    OpenCV's THRESH_OTSU flag computes this analytically from the image
-    histogram, so no threshold constant needs to be hard-coded.
-
+        
     Returns
     -------
     binary : np.ndarray, dtype=uint8
@@ -118,17 +111,13 @@ def largest_contour_bbox(
     ----------
     binary  : Otsu-thresholded mask.
     margin  : Extra pixels added on all four sides of the tight bounding box.
-    img_h   : Original image height  (used to clamp coordinates).
-    img_w   : Original image width   (used to clamp coordinates).
+    img_h   : Original image height.
+    img_w   : Original image width.
 
     Returns
     -------
     (x1, y1, x2, y2) : top-left and bottom-right corners, margin included,
                         clamped to image bounds.
-
-    Raises
-    ------
-    ValueError : if no contour at all is found (fully black image).
     """
     contours, _ = cv2.findContours(
         binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
@@ -136,12 +125,12 @@ def largest_contour_bbox(
     if not contours:
         raise ValueError("No contours found – image may be entirely black.")
 
-    # Select the contour with the maximum enclosed area
+    #Select the contour with the maximum enclosed area
     largest = max(contours, key=cv2.contourArea)
 
     x, y, w, h = cv2.boundingRect(largest)
 
-    # Expand by margin and clamp to valid pixel range
+    #Expand by margin and clamp to valid pixel range
     x1 = max(0, x - margin)
     y1 = max(0, y - margin)
     x2 = min(img_w, x + w + margin)
@@ -180,52 +169,52 @@ def crop_and_resize(
     result = {"path": str(image_path), "status": "ok", "error": None}
 
     try:
-        # --- 1. Read ---
+        #--- 1. Read ---
         img_bgr = cv2.imread(str(image_path), cv2.IMREAD_COLOR)
         if img_bgr is None:
             raise IOError(f"cv2.imread returned None for {image_path}")
 
         img_h, img_w = img_bgr.shape[:2]
 
-        # --- 2. Greyscale copy ---
+        #--- 2. Greyscale copy ---
         grey = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
 
-        # --- 3. Gaussian blur (kernel must be odd × odd) ---
+        #--- 3. Gaussian blur (kernel must be odd × odd) ---
         ksize = blur_ksize if blur_ksize % 2 == 1 else blur_ksize + 1
         blurred = cv2.GaussianBlur(grey, (ksize, ksize), sigmaX=0)
 
-        # --- 4. Otsu threshold ---
+        #--- 4. Otsu threshold ---
         binary = otsu_threshold(blurred)
 
-        # --- 5. Morphological closing ---
-        # Closing = dilation followed by erosion.
-        # Fills small dark regions inside the brain that Otsu misclassifies as
-        # background (e.g. ventricles, sulci).
+        #--- 5. Morphological closing ---
+        #Closing = dilation followed by erosion.
+        #Fills small dark regions inside the brain that Otsu misclassifies as
+        #background (e.g. ventricles, sulci).
         kernel = cv2.getStructuringElement(
             cv2.MORPH_RECT, (morph_ksize, morph_ksize)
         )
         closed = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel)
 
-        # --- 6. Bounding box of largest contour ---
+        #--- 6. Bounding box of largest contour ---
         x1, y1, x2, y2 = largest_contour_bbox(closed, margin, img_h, img_w)
 
-        # Sanity check: crop must have non-zero area
+        #crop must have non-zero area
         if x2 <= x1 or y2 <= y1:
             raise ValueError(
                 f"Degenerate bounding box ({x1},{y1})→({x2},{y2})."
             )
 
-        # --- 7. Crop colour image ---
+        #--- 7. Crop colour image ---
         cropped = img_bgr[y1:y2, x1:x2]
 
-        # --- 8. Resize ---
+        #--- 8. Resize ---
         resized = cv2.resize(
             cropped,
             (output_size, output_size),
             interpolation=cv2.INTER_LINEAR,
         )
 
-        # --- 9. Write ---
+        #--- 9. Write ---
         output_path.parent.mkdir(parents=True, exist_ok=True)
         success = cv2.imwrite(str(output_path), resized)
         if not success:
@@ -238,17 +227,15 @@ def crop_and_resize(
     return result
 
 
-# ---------------------------------------------------------------------------
-# Worker shim (needed for ProcessPoolExecutor pickling)
-# ---------------------------------------------------------------------------
 
+#Worker shim (needed for ProcessPoolExecutor pickling)
 def _worker(args: tuple) -> dict:
     return crop_and_resize(*args)
 
 
-# ---------------------------------------------------------------------------
-# Dataset-level orchestrator
-# ---------------------------------------------------------------------------
+#--------------------------------------------------------------------------
+#Dataset-level orchestrator
+#---------------------------------------------------------------------------
 
 def process_dataset(
     input_root: Path,
@@ -264,7 +251,7 @@ def process_dataset(
     them in parallel while mirroring the subdirectory structure under
     output_root.
     """
-    # Collect all image paths
+    #Collect all image paths
     all_images = [
         p for p in input_root.rglob("*")
         if p.is_file() and p.suffix.lower() in VALID_EXTENSIONS
@@ -279,10 +266,10 @@ def process_dataset(
 
     log.info("Found %d images under '%s'.", len(all_images), input_root)
 
-    # Build (image_path, output_path, …) tuples
+    #Build (image_path, output_path, …) tuples
     tasks = []
     for img_path in all_images:
-        # Reconstruct the same relative sub-path under output_root
+        #Reconstruct the same relative sub-path under output_root
         rel = img_path.relative_to(input_root)
         out_path = output_root / rel
         tasks.append((
@@ -290,7 +277,7 @@ def process_dataset(
             output_size, margin, blur_ksize, morph_ksize,
         ))
 
-    # Process with progress bar
+    #Process with progress bar
     failed, succeeded = [], []
 
     with ProcessPoolExecutor(max_workers=workers) as pool:
@@ -304,7 +291,7 @@ def process_dataset(
                     failed.append(result)
                 pbar.update(1)
 
-    # Summary report
+    #Summary report
     log.info("Completed: %d succeeded, %d failed.", len(succeeded), len(failed))
 
     if failed:
@@ -312,7 +299,7 @@ def process_dataset(
         for item in failed[:20]:
             log.warning("  %s  →  %s", item["path"], item["error"])
 
-        # Write full failure log
+        #Write full failure log
         fail_log = output_root / "failed_crops.txt"
         fail_log.parent.mkdir(parents=True, exist_ok=True)
         with fail_log.open("w") as fh:
@@ -321,10 +308,7 @@ def process_dataset(
         log.info("Full failure log written to '%s'.", fail_log)
 
 
-# ---------------------------------------------------------------------------
-# CLI entry-point
-# ---------------------------------------------------------------------------
-
+#Fancy stuff
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Brain MRI ROI bounding-box cropping pipeline (Step 6).",

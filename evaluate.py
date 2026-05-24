@@ -1,15 +1,15 @@
 """
-evaluate_all.py  —  Unified evaluation for all models and datasets
+evaluate.py  —  Unified evaluation for all models and datasets
 ==================================================================
 Evaluates all 6 combinations (3 models x raw + roi) and writes
 a results file and confusion matrix plot for each.
 
 Usage
 -----
-  python evaluate_all.py                         # all 6 combinations
-  python evaluate_all.py --model baseline       # one model, both datasets
-  python evaluate_all.py --model improved --dataset roi
-  python evaluate_all.py --summary               # print comparison table only
+  python evaluate.py                         #all 6 combinations - PREFERRED RUN
+  python evaluate.py --model baseline       #one model, both datasets
+  python evaluate.py --model improved --dataset roi
+  python evaluate.py --summary               #print comparison table only
 
 Outputs
 -------
@@ -44,10 +44,8 @@ DATASET_ROOTS = {
     "roi": "Dataset/ROI/test",
 }
 
-# ─────────────────────────────────────────────────────────────────────────────
-#  Architectures — must match the corresponding training scripts exactly
-# ─────────────────────────────────────────────────────────────────────────────
 
+#Architectures — must match the corresponding training scripts exactly
 class Baseline(nn.Module):
     """Baseline (Baseline) — no BatchNorm, AdaptiveAvgPool(4,4)."""
     def __init__(self, num_classes=4):
@@ -163,16 +161,15 @@ class Lite(nn.Module):
         return self.head(torch.cat([self.gap(x), self.gmp(x)], dim=1))
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-#  Model registry
-# ─────────────────────────────────────────────────────────────────────────────
+
+#Model registry
 MODEL_REGISTRY = {
     "baseline": {
         "cls":      Baseline,
         "weights":  {"raw": "Models/best_baseline.pth",
                      "roi": "Models/best_baseline_roi.pth"},
         "sizes":    {"raw": 512, "roi": 224},
-        "mean":     None,   # no normalisation
+        "mean":     None,   
         "display":  "Baseline (Baseline)",
     },
     "improved": {
@@ -196,9 +193,8 @@ MODEL_REGISTRY = {
 }
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-#  Evaluation helpers
-# ─────────────────────────────────────────────────────────────────────────────
+
+#Evaluation helpers
 def get_transform(cfg: dict, dataset_key: str) -> transforms.Compose:
     tf = [
         transforms.Resize((cfg["sizes"][dataset_key], cfg["sizes"][dataset_key])),
@@ -251,7 +247,7 @@ def save_results(model_key: str, dataset_key: str, results: dict):
     cfg   = MODEL_REGISTRY[model_key]
     label = f"{model_key}_{dataset_key}"
 
-    # Text report
+    #Text report
     txt_path = f"Results/{label}.txt"
     with open(txt_path, "w") as f:
         f.write(f"Model  : {cfg['display']}\n")
@@ -264,7 +260,7 @@ def save_results(model_key: str, dataset_key: str, results: dict):
         f.write("\nConfusion Matrix:\n")
         f.write(np.array2string(results["cm"]))
 
-    # Confusion matrix plot
+    #Confusion matrix plot
     cm      = results["cm"]
     norm_cm = cm.astype(float) / cm.sum(axis=1, keepdims=True)
 
@@ -303,9 +299,8 @@ def save_results(model_key: str, dataset_key: str, results: dict):
     return results["acc"]
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-#  Summary comparison table
-# ─────────────────────────────────────────────────────────────────────────────
+
+#Summary comparison table
 def print_summary(scores: dict):
     print("\n" + "=" * 58)
     print("  RESULTS SUMMARY")
@@ -326,9 +321,8 @@ def print_summary(scores: dict):
     print("=" * 58 + "\n")
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-#  Entry-point
-# ─────────────────────────────────────────────────────────────────────────────
+
+#Fancy arguments because too many variations of the same file are horrid.
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Evaluate all models on raw and/or ROI datasets.",
