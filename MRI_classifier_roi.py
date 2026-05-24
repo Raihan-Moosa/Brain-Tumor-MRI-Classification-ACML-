@@ -1,18 +1,4 @@
-"""
-MRI_classifier_roi.py  —  BrainTumorNet-Lite  (FIXED + Sequential Saliency)
-=========================================================================
-Fixes from original
---------------------
-  * MIN_DELTA  0.10 → 0.005  (was stopping after ~3 epochs, never converging)
-  * Replaced ad-hoc `no_improve` counter with the from-scratch EarlyStopping
-    class (patience=5, delta=0.005, mode="min" on val loss)
-  * Added sequential saliency checkpointing: saves a full model checkpoint
-    every SALIENCY_INTERVAL epochs into Models/saliency_ckpts/ so that
-    gradcam_sequential.py can replay what the model attends to over time
-
-Everything else (architecture, MixUp, SE blocks, cosine LR, TTA) is unchanged.
-"""
-
+#AttentionCNN ROI
 import os
 import copy
 import time
@@ -35,9 +21,8 @@ warnings.filterwarnings("ignore")
 
 from stopping import EarlyStopping
 
-# ─────────────────────────────────────────────────────────────────────────────
-#  Reproducibility
-# ─────────────────────────────────────────────────────────────────────────────
+
+#==Reproducibility==============================================================
 SEED = 42
 random.seed(SEED); np.random.seed(SEED); torch.manual_seed(SEED)
 torch.set_num_threads(os.cpu_count())
@@ -48,9 +33,8 @@ print(f"  Device  : CPU  ({os.cpu_count()} logical cores)")
 print(f"  Model   : BrainTumorNet-Lite  (FIXED MIN_DELTA + EarlyStopping)")
 print(f"{'='*62}\n")
 
-# ─────────────────────────────────────────────────────────────────────────────
-#  Paths
-# ─────────────────────────────────────────────────────────────────────────────
+
+#==Paths========================================================================
 BASE  = r"Dataset/ROI"
 TRAIN = os.path.join(BASE, "train")
 VAL   = os.path.join(BASE, "val")
@@ -62,9 +46,8 @@ os.makedirs("Plots",                    exist_ok=True)
 
 CKPT_PATH = "Models/best_braintumor_lite_roi.pth"
 
-# ─────────────────────────────────────────────────────────────────────────────
-#  Hyper-parameters
-# ─────────────────────────────────────────────────────────────────────────────
+
+#==Hyper-parameters============================================================
 IMG_SIZE          = 224
 BATCH_SIZE        = 32
 NUM_CLASSES       = 4
@@ -76,11 +59,11 @@ WEIGHT_DECAY      = 1e-4
 LABEL_SMOOTHING   = 0.10
 MIXUP_ALPHA       = 0.30
 
-# ── Early stopping (FIXED) ────────────────────────────────────────────────────
+#====Early stopping============================================================
 ES_PATIENCE       = 5           # epochs of non-improvement before stopping
-ES_DELTA          = 0.005       # FIX: was 0.10 — far too coarse, stopped immediately
+ES_DELTA          = 0.005
 
-# ── Sequential saliency ───────────────────────────────────────────────────────
+#====Sequential saliency=======================================================
 SALIENCY_INTERVAL = 5           # save a full checkpoint every N epochs
 
 T0, T_MULT        = 10, 2
@@ -89,9 +72,8 @@ CLASS_NAMES       = ["glioma", "meningioma", "notumor", "pituitary"]
 MEAN = [0.485, 0.456, 0.406]
 STD  = [0.229, 0.224, 0.225]
 
-# ─────────────────────────────────────────────────────────────────────────────
-#  Transforms
-# ─────────────────────────────────────────────────────────────────────────────
+
+#==Transforms==================================================================
 train_tf = transforms.Compose([
     transforms.Resize((IMG_SIZE, IMG_SIZE)),
     transforms.RandomHorizontalFlip(p=0.5),
@@ -123,9 +105,8 @@ TTA_TRANSFORMS = [
                         transforms.ToTensor(), transforms.Normalize(MEAN, STD)]),
 ]
 
-# ─────────────────────────────────────────────────────────────────────────────
-#  Data loaders
-# ─────────────────────────────────────────────────────────────────────────────
+
+#==Data loaders=================================================================
 train_ds = datasets.ImageFolder(TRAIN, transform=train_tf)
 val_ds   = datasets.ImageFolder(VAL,   transform=eval_tf)
 test_ds  = datasets.ImageFolder(TEST,  transform=eval_tf)
@@ -140,9 +121,8 @@ test_loader  = DataLoader(test_ds,  batch_size=BATCH_SIZE, shuffle=False,
 print(f"Train: {len(train_ds):,}  Val: {len(val_ds):,}  Test: {len(test_ds):,}")
 print(f"Classes: {train_ds.class_to_idx}\n")
 
-# ─────────────────────────────────────────────────────────────────────────────
-#  MixUp
-# ─────────────────────────────────────────────────────────────────────────────
+
+#==MixUp=======================================================================
 def mixup_data(x, y, alpha=0.3):
     if alpha <= 0:
         return x, y, y, 1.0
@@ -153,9 +133,8 @@ def mixup_data(x, y, alpha=0.3):
 def mixup_criterion(criterion, pred, y_a, y_b, lam):
     return lam * criterion(pred, y_a) + (1 - lam) * criterion(pred, y_b)
 
-# ─────────────────────────────────────────────────────────────────────────────
-#  Architecture — BrainTumorNet-Lite (unchanged)
-# ─────────────────────────────────────────────────────────────────────────────
+
+#==Architecture — BrainTumorNet-Lite===========================================
 class DepthwiseSeparableConv(nn.Module):
     def __init__(self, in_ch, out_ch, stride=1):
         super().__init__()
@@ -259,9 +238,8 @@ class BrainTumorNetLite(nn.Module):
         x = torch.cat([self.gap(x), self.gmp(x)], dim=1)
         return self.head(x)
 
-# ─────────────────────────────────────────────────────────────────────────────
-#  Loss
-# ─────────────────────────────────────────────────────────────────────────────
+
+#==Loss=========================================================================
 class LabelSmoothCE(nn.Module):
     def __init__(self, smoothing=0.10):
         super().__init__()
@@ -275,9 +253,8 @@ class LabelSmoothCE(nn.Module):
             smooth.scatter_(1, targets.unsqueeze(1), 1.0 - self.smoothing)
         return -(smooth * log_prob).sum(dim=1).mean()
 
-# ─────────────────────────────────────────────────────────────────────────────
-#  Train / eval helpers
-# ─────────────────────────────────────────────────────────────────────────────
+
+#==Train / eval helpers=========================================================
 def train_one_epoch(model, loader, criterion, optimizer):
     model.train()
     total_loss, correct, total = 0.0, 0, 0
@@ -327,9 +304,8 @@ def predict_with_tta(model, dataset_root):
     avg = torch.stack(all_probs).mean(0)
     return avg.argmax(1).numpy(), all_labels.numpy()
 
-# ─────────────────────────────────────────────────────────────────────────────
-#  Main training loop
-# ─────────────────────────────────────────────────────────────────────────────
+
+#==Main training loop============================================================
 def main():
     model     = BrainTumorNetLite(num_classes=NUM_CLASSES)
     n_params  = sum(p.numel() for p in model.parameters() if p.requires_grad)
@@ -341,10 +317,9 @@ def main():
     scheduler = CosineAnnealingWarmRestarts(optimizer, T_0=T0,
                                             T_mult=T_MULT, eta_min=MIN_LR)
 
-    # ── From-scratch EarlyStopping (replaces broken no_improve counter) ───────
     stopper = EarlyStopping(
         patience=ES_PATIENCE,
-        delta=ES_DELTA,          # FIXED: 0.005 not 0.10
+        delta=ES_DELTA,          
         checkpoint_path=CKPT_PATH,
         verbose=True,
         mode="min",
@@ -376,7 +351,7 @@ def main():
               f"{vl_loss:>9.5f}  {vl_acc:>7.2f}%  {lr:>10.2e}"
               f"  {marker}  {elapsed:>5.0f}s")
 
-        # ── Sequential saliency checkpoint ────────────────────────────────────
+        #====Sequential saliency checkpoint=======================================
         # Save a snapshot every SALIENCY_INTERVAL epochs regardless of whether
         # it is the best model. gradcam_sequential.py loads these in order to
         # visualise how the model's attention evolves during training.
@@ -385,7 +360,7 @@ def main():
             torch.save(model.state_dict(), ckpt_name)
             print(f"  [Saliency ckpt] Saved: {ckpt_name}")
 
-        # ── Adaptive early stopping ────────────────────────────────────────────
+        #====Adaptive early stopping==============================================
         if stopper.step(vl_loss, model):
             print(f"\n  ⚑  Early stop at epoch {epoch}. "
                   f"Best val loss {stopper.best_score:.5f} "
@@ -399,9 +374,8 @@ def main():
     stopper.load_best(model)
     print(f"\n  Best val accuracy — check curves above.")
 
-    # ─────────────────────────────────────────────────────────────────────────
-    #  Plots
-    # ─────────────────────────────────────────────────────────────────────────
+
+    #==Plots======================================================================
     epochs_ran = len(history["train_loss"])
     xs = range(1, epochs_ran + 1)
 
@@ -424,9 +398,8 @@ def main():
     plt.savefig("Plots/lite_curves_roi.png", dpi=150); plt.close()
     print("Saved: Plots/lite_curves_roi.png")
 
-    # ─────────────────────────────────────────────────────────────────────────
-    #  Test evaluation
-    # ─────────────────────────────────────────────────────────────────────────
+
+    #==Test evaluation===========================================================
     print("\n" + "=" * 62)
     print("  FINAL TEST EVALUATION")
     print("=" * 62)
@@ -439,7 +412,8 @@ def main():
     print(f"  TTA      test accuracy : {tta_acc:.2f}%\n")
     print(classification_report(y_true, y_pred, target_names=CLASS_NAMES, digits=4))
 
-    # Confusion matrix
+    #=Confusion matrix===========================================================
+    #Duplicate; matches the one generated by gradcam.py
     cm   = confusion_matrix(y_true, y_pred)
     norm = cm.astype(float) / cm.sum(axis=1, keepdims=True)
     fig, axes = plt.subplots(1, 2, figsize=(14, 5))
