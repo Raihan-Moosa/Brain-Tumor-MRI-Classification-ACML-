@@ -1,32 +1,31 @@
 """
-gradcam_all.py  —  Unified Grad-CAM for all models and datasets
+gradcam.py  —  Unified Grad-CAM for all models and datasets
 ================================================================
-Replaces gradcam_3d.py, gradcam_visual.py, and gradcam_lite.py.
-One script handles all 6 combinations:
+Handles all 6 combinations:
 
   Model:    Baseline (baseline) | Improved (improved) | Lite (lite)
   Dataset:  raw | roi
 
 Usage
 -----
-  # All models, raw dataset
-  python gradcam_all.py
+  #All models, raw dataset
+  python gradcam.py
 
-  # Specific model and dataset
-  python gradcam_all.py --model improved --dataset roi
+  #Specific model and dataset
+  python gradcam.py --model improved --dataset roi
 
-  # Sequential saliency filmstrip (Lite only, needs saliency_ckpts/)
-  python gradcam_all.py --model lite --sequential
+  #Sequential saliency filmstrip (Lite only, needs saliency_ckpts/)
+  python gradcam.py --model lite --sequential
 
-  # Run everything in one go
-  python gradcam_all.py --all
+  #Run everything in one go
+  python gradcam.py --all
 
 Arguments
 ---------
   --model       baseline | improved | lite | all  (default: all)
   --dataset     raw | roi | both                          (default: raw)
-  --sequential  filmstrip across training checkpoints (lite only)
-  --all         equivalent to --model all --dataset both
+  --sequential  filmstrip across training checkpoints (lite only) - PREFERRED
+  --all         equivalent to --model all --dataset both - PREFERRED
 
 Outputs
 -------
@@ -38,7 +37,6 @@ Architecture registry
 ---------------------
 Each model is registered with its weight path, target layer accessor,
 image size, and normalisation so the hook logic is identical for all.
-Adding a new model requires only a new entry in MODEL_REGISTRY.
 """
 
 import argparse
@@ -61,9 +59,8 @@ from torchvision import datasets, transforms
 import warnings
 warnings.filterwarnings("ignore")
 
-# ─────────────────────────────────────────────────────────────────────────────
-#  Dataset paths
-# ─────────────────────────────────────────────────────────────────────────────
+
+#==Dataset paths================================================================
 DATASET_ROOTS = {
     "raw": "Dataset/test",
     "roi": "Dataset/ROI/test",
@@ -74,29 +71,28 @@ OUT_ROOT       = "Plots/gradcam"
 CLASS_NAMES    = ["glioma", "meningioma", "notumor", "pituitary"]
 DEVICE         = torch.device("cpu")
 BG             = "#111111"
-ATTENTION_PCT  = 70     # top 30% of activations shown in threshold panel
+ATTENTION_PCT  = 70     #top 30% of activations shown in threshold panel
 
-# Clinical assessment — update after ROI retraining if findings change
+#Clinical assessment — to update if we have time.
 CLINICAL_NOTES = {
     "raw": {
-        "glioma":     "⚠ Fires on image border artifact — NOT tumour",
-        "meningioma": "✓ Activates skull base — anatomically correct",
-        "notumor":    "✓ Diffuse central activation — correct",
-        "pituitary":  "✓ Activates brain base — anatomically correct",
+        "glioma":     "Fires on image border artifact — NOT tumour",
+        "meningioma": "Activates skull base — anatomically correct",
+        "notumor":    "Diffuse central activation — correct",
+        "pituitary":  "Activates brain base — anatomically correct",
     },
     "roi": {
         "glioma":     "Post-ROI: border removed — check if attention shifted",
-        "meningioma": "✓ Post-ROI activation — verify anatomical region",
-        "notumor":    "✓ Post-ROI activation — verify central focus",
-        "pituitary":  "✓ Post-ROI activation — verify brain base focus",
+        "meningioma": "Post-ROI activation — verify anatomical region",
+        "notumor":    "Post-ROI activation — verify central focus",
+        "pituitary":  "Post-ROI activation — verify brain base focus",
     },
 }
 
-# ─────────────────────────────────────────────────────────────────────────────
-#  Model architectures
-# ─────────────────────────────────────────────────────────────────────────────
 
-# ── Baseline (Baseline) ──────────────────────────────────────────────────────
+#Model architectures
+
+#Simple (Baseline)
 class Baseline(nn.Module):
     """
     4-block plain CNN. No BatchNorm, no normalisation, no attention.
@@ -120,7 +116,7 @@ class Baseline(nn.Module):
         return self.classifier(self.features(x))
 
 
-# ── Improved (Improved) ───────────────────────────────────────────────────────
+#Norm (Improved)
 class Improved(nn.Module):
     """
     4-block CNN with BatchNorm and normalised inputs.
@@ -145,7 +141,7 @@ class Improved(nn.Module):
         return self.classifier(self.features(x))
 
 
-# ── Lite (Lite) ───────────────────────────────────────────────────────
+#Attention (Lite)
 class DepthwiseSeparableConv(nn.Module):
     def __init__(self, in_ch, out_ch, stride=1):
         super().__init__()
@@ -213,11 +209,11 @@ class Lite(nn.Module):
         return self.head(torch.cat([self.gap(x), self.gmp(x)], dim=1))
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-#  Model registry
-#  Each entry defines everything needed to load and hook the model.
-#  To add a new model: add one entry here, nothing else changes.
-# ─────────────────────────────────────────────────────────────────────────────
+'''
+#Model registry
+#Each entry defines everything needed to load and hook the model.
+#To add a new model: add one entry here, nothing else changes.
+'''
 def _get_baseline_target(m):  return m.features[9]
 def _get_improved_target(m):    return m.features[12]
 def _get_lite_target(m): return m.stage4[1].conv2.pw
@@ -231,7 +227,7 @@ MODEL_REGISTRY = {
         },
         "target_fn":   _get_baseline_target,
         "img_size":    512,
-        "mean":        [0.0, 0.0, 0.0],   # no normalisation in baseline
+        "mean":        [0.0, 0.0, 0.0],   
         "std":         [1.0, 1.0, 1.0],
         "display":     "Baseline (Baseline)",
     },
@@ -262,9 +258,8 @@ MODEL_REGISTRY = {
 }
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-#  From-scratch Grad-CAM
-# ─────────────────────────────────────────────────────────────────────────────
+
+#From-scratch Grad-CAM
 class GradCAM:
     """
     From-scratch Grad-CAM via register_forward_hook + register_full_backward_hook.
@@ -316,9 +311,8 @@ class GradCAM:
             h.remove()
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-#  Helpers
-# ─────────────────────────────────────────────────────────────────────────────
+
+#Helper functions
 def load_model(model_key: str, dataset_key: str) -> nn.Module:
     cfg    = MODEL_REGISTRY[model_key]
     wpath  = cfg["weights"][dataset_key]
@@ -389,9 +383,9 @@ def pick_one_per_class(model: nn.Module, model_key: str,
     return picked
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-#  Panel builders (interpretable layout — no 3D surface)
-# ─────────────────────────────────────────────────────────────────────────────
+
+#Panel builders (interpretable layout — no 3D surface)
+#Abandoning 3D surface because it looks like 3D gibberish
 def _panel_original(ax, img_np, true_label):
     ax.imshow(img_np)
     ax.set_title("Input MRI", color="white", fontsize=10, pad=5)
@@ -421,7 +415,7 @@ def _panel_threshold(ax, img_np, cam, true_label, pred_label, dataset_key):
     ax.imshow(overlay)
     ax.contour(mask, levels=[0.5], colors=["#FFD700"], linewidths=[1.5])
     note   = CLINICAL_NOTES[dataset_key].get(CLASS_NAMES[true_label], "")
-    colour = "#4ade80" if "✓" in note else "#f87171" if "⚠" in note else "#aaaaaa"
+    colour = "#aaaaaa"
     ax.set_title("Attention Region\n(top 30% activations)",
                  color="white", fontsize=10, pad=5)
     ax.set_xlabel(note, color=colour, fontsize=7)
@@ -487,9 +481,8 @@ def make_figure(img_t, cam, probs, true_label, pred_label,
     return fig
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-#  Mode 1 — Standard Grad-CAM
-# ─────────────────────────────────────────────────────────────────────────────
+
+#Mode 1 — Standard Grad-CAM
 def run_standard(model_key: str, dataset_key: str):
     cfg     = MODEL_REGISTRY[model_key]
     out_dir = Path(OUT_ROOT) / f"{model_key}_{dataset_key}"
@@ -520,7 +513,7 @@ def run_standard(model_key: str, dataset_key: str):
         plt.close(fig)
         print(f"    Saved: {path}")
 
-    # Summary — 2-row grid (overlay + threshold mask)
+    #Summary — 2-row grid (overlay + threshold mask)
     fig_s, axes = plt.subplots(2, 4, figsize=(20, 10), facecolor=BG)
     for col, cls in enumerate(range(4)):
         info  = picked[cls]
@@ -557,9 +550,8 @@ def run_standard(model_key: str, dataset_key: str):
     gradcam.remove()
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-#  Mode 2 — Sequential saliency (Lite only)
-# ─────────────────────────────────────────────────────────────────────────────
+
+#Mode 2 — Sequential saliency (Lite only - not entirely interpretable so abandoning ROI extension because of time)
 def run_sequential(dataset_key: str):
     model_key = "lite"
     cfg       = MODEL_REGISTRY[model_key]
@@ -577,7 +569,7 @@ def run_sequential(dataset_key: str):
     print(f"\n  [Sequential saliency — Lite / {dataset_key.upper()}]")
     print(f"  Found {len(ckpts)} checkpoints.")
 
-    # Use best-model's sample selection for consistent images across epochs
+    #Use best-model's sample selection for consistent images across epochs
     ref_model = load_model(model_key, dataset_key)
     picked    = pick_one_per_class(ref_model, model_key, dataset_key)
 
@@ -639,9 +631,8 @@ def run_sequential(dataset_key: str):
         print(f"    Saved: {path}\n")
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-#  Entry-point
-# ─────────────────────────────────────────────────────────────────────────────
+
+#More fancy flags and switches.
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Unified Grad-CAM for Baseline / Improved / Lite",
