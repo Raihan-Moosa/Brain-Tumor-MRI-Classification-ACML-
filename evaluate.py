@@ -7,8 +7,8 @@ a results file and confusion matrix plot for each.
 Usage
 -----
   python evaluate_all.py                         # all 6 combinations
-  python evaluate_all.py --model simplecnn       # one model, both datasets
-  python evaluate_all.py --model normcnn --dataset roi
+  python evaluate_all.py --model baseline       # one model, both datasets
+  python evaluate_all.py --model improved --dataset roi
   python evaluate_all.py --summary               # print comparison table only
 
 Outputs
@@ -48,8 +48,8 @@ DATASET_ROOTS = {
 #  Architectures — must match the corresponding training scripts exactly
 # ─────────────────────────────────────────────────────────────────────────────
 
-class SimpleCNN(nn.Module):
-    """SimpleCNN (Baseline) — no BatchNorm, AdaptiveAvgPool(4,4)."""
+class Baseline(nn.Module):
+    """Baseline (Baseline) — no BatchNorm, AdaptiveAvgPool(4,4)."""
     def __init__(self, num_classes=4):
         super().__init__()
         self.features = nn.Sequential(
@@ -67,8 +67,8 @@ class SimpleCNN(nn.Module):
     def forward(self, x): return self.classifier(self.features(x))
 
 
-class NormCNN(nn.Module):
-    """NormCNN (Improved) — BatchNorm, global pooling, wider head."""
+class Improved(nn.Module):
+    """Improved (Improved) — BatchNorm, global pooling, wider head."""
     def __init__(self, num_classes=4):
         super().__init__()
         self.features = nn.Sequential(
@@ -126,8 +126,8 @@ class LiteResBlock(nn.Module):
         return F.relu(self.se(self.conv2(self.conv1(x))) + self.skip(x),
                       inplace=True)
 
-class AttentionCNN(nn.Module):
-    """AttentionCNN (Lite) — depthwise sep convs, SE attention, residuals."""
+class Lite(nn.Module):
+    """Lite (Lite) — depthwise sep convs, SE attention, residuals."""
     def __init__(self, num_classes=4):
         super().__init__()
         self.stem   = nn.Sequential(
@@ -167,31 +167,31 @@ class AttentionCNN(nn.Module):
 #  Model registry
 # ─────────────────────────────────────────────────────────────────────────────
 MODEL_REGISTRY = {
-    "simplecnn": {
-        "cls":      SimpleCNN,
+    "baseline": {
+        "cls":      Baseline,
         "weights":  {"raw": "Models/best_baseline.pth",
                      "roi": "Models/best_baseline_roi.pth"},
         "sizes":    {"raw": 512, "roi": 224},
         "mean":     None,   # no normalisation
-        "display":  "SimpleCNN (Baseline)",
+        "display":  "Baseline (Baseline)",
     },
-    "normcnn": {
-        "cls":      NormCNN,
+    "improved": {
+        "cls":      Improved,
         "weights":  {"raw": "Models/best_improved.pth",
                      "roi": "Models/best_improved_roi.pth"},
         "sizes":    {"raw": 256, "roi": 224},
         "mean":     [0.5, 0.5, 0.5],
         "std":      [0.5, 0.5, 0.5],
-        "display":  "NormCNN (Improved)",
+        "display":  "Improved (Improved)",
     },
-    "attentioncnn": {
-        "cls":      AttentionCNN,
+    "lite": {
+        "cls":      Lite,
         "weights":  {"raw": "Models/best_braintumor_lite.pth",
                      "roi": "Models/best_braintumor_lite_roi.pth"},
         "sizes":    {"raw": 128, "roi": 224},
         "mean":     [0.485, 0.456, 0.406],
         "std":      [0.229, 0.224, 0.225],
-        "display":  "AttentionCNN (Lite)",
+        "display":  "Lite (Lite)",
     },
 }
 
@@ -335,7 +335,7 @@ if __name__ == "__main__":
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     parser.add_argument("--model",   default="all",
-                        choices=["simplecnn", "normcnn", "attentioncnn", "all"])
+                        choices=["baseline", "improved", "lite", "all"])
     parser.add_argument("--dataset", default="both",
                         choices=["raw", "roi", "both"])
     parser.add_argument("--summary", action="store_true",

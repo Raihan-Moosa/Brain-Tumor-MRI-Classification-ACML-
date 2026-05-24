@@ -4,7 +4,7 @@ gradcam_all.py  —  Unified Grad-CAM for all models and datasets
 Replaces gradcam_3d.py, gradcam_visual.py, and gradcam_lite.py.
 One script handles all 6 combinations:
 
-  Model:    SimpleCNN (baseline) | NormCNN (improved) | AttentionCNN (lite)
+  Model:    Baseline (baseline) | Improved (improved) | Lite (lite)
   Dataset:  raw | roi
 
 Usage
@@ -13,26 +13,26 @@ Usage
   python gradcam_all.py
 
   # Specific model and dataset
-  python gradcam_all.py --model normcnn --dataset roi
+  python gradcam_all.py --model improved --dataset roi
 
-  # Sequential saliency filmstrip (AttentionCNN only, needs saliency_ckpts/)
-  python gradcam_all.py --model attentioncnn --sequential
+  # Sequential saliency filmstrip (Lite only, needs saliency_ckpts/)
+  python gradcam_all.py --model lite --sequential
 
   # Run everything in one go
   python gradcam_all.py --all
 
 Arguments
 ---------
-  --model       simplecnn | normcnn | attentioncnn | all  (default: all)
+  --model       baseline | improved | lite | all  (default: all)
   --dataset     raw | roi | both                          (default: raw)
-  --sequential  filmstrip across training checkpoints (attentioncnn only)
+  --sequential  filmstrip across training checkpoints (lite only)
   --all         equivalent to --model all --dataset both
 
 Outputs
 -------
   Plots/gradcam/<model>_<dataset>/gradcam_<class>.png
   Plots/gradcam/<model>_<dataset>/gradcam_summary.png
-  Plots/gradcam/attentioncnn_<dataset>/sequential_<class>.png
+  Plots/gradcam/lite_<dataset>/sequential_<class>.png
 
 Architecture registry
 ---------------------
@@ -96,8 +96,8 @@ CLINICAL_NOTES = {
 #  Model architectures
 # ─────────────────────────────────────────────────────────────────────────────
 
-# ── SimpleCNN (Baseline) ──────────────────────────────────────────────────────
-class SimpleCNN(nn.Module):
+# ── Baseline (Baseline) ──────────────────────────────────────────────────────
+class Baseline(nn.Module):
     """
     4-block plain CNN. No BatchNorm, no normalisation, no attention.
     Grad-CAM target: features[9]  (last Conv2d, 64->128)
@@ -120,8 +120,8 @@ class SimpleCNN(nn.Module):
         return self.classifier(self.features(x))
 
 
-# ── NormCNN (Improved) ───────────────────────────────────────────────────────
-class NormCNN(nn.Module):
+# ── Improved (Improved) ───────────────────────────────────────────────────────
+class Improved(nn.Module):
     """
     4-block CNN with BatchNorm and normalised inputs.
     Grad-CAM target: features[12]  (last Conv2d, 64->128; BN shifts index)
@@ -145,7 +145,7 @@ class NormCNN(nn.Module):
         return self.classifier(self.features(x))
 
 
-# ── AttentionCNN (Lite) ───────────────────────────────────────────────────────
+# ── Lite (Lite) ───────────────────────────────────────────────────────
 class DepthwiseSeparableConv(nn.Module):
     def __init__(self, in_ch, out_ch, stride=1):
         super().__init__()
@@ -183,7 +183,7 @@ class LiteResBlock(nn.Module):
     def forward(self, x):
         return F.relu(self.se(self.conv2(self.conv1(x))) + self.skip(x), inplace=True)
 
-class AttentionCNN(nn.Module):
+class Lite(nn.Module):
     """
     Depthwise-separable residual CNN with SE channel attention.
     Grad-CAM target: stage4[1].conv2.pw  (last pointwise conv before pooling)
@@ -218,46 +218,46 @@ class AttentionCNN(nn.Module):
 #  Each entry defines everything needed to load and hook the model.
 #  To add a new model: add one entry here, nothing else changes.
 # ─────────────────────────────────────────────────────────────────────────────
-def _get_simplecnn_target(m):  return m.features[9]
-def _get_normcnn_target(m):    return m.features[12]
-def _get_attentioncnn_target(m): return m.stage4[1].conv2.pw
+def _get_baseline_target(m):  return m.features[9]
+def _get_improved_target(m):    return m.features[12]
+def _get_lite_target(m): return m.stage4[1].conv2.pw
 
 MODEL_REGISTRY = {
-    "simplecnn": {
-        "cls":         SimpleCNN,
+    "baseline": {
+        "cls":         Baseline,
         "weights":     {
             "raw": "Models/best_baseline.pth",
             "roi": "Models/best_baseline_roi.pth",
         },
-        "target_fn":   _get_simplecnn_target,
+        "target_fn":   _get_baseline_target,
         "img_size":    512,
         "mean":        [0.0, 0.0, 0.0],   # no normalisation in baseline
         "std":         [1.0, 1.0, 1.0],
-        "display":     "SimpleCNN (Baseline)",
+        "display":     "Baseline (Baseline)",
     },
-    "normcnn": {
-        "cls":         NormCNN,
+    "improved": {
+        "cls":         Improved,
         "weights":     {
             "raw": "Models/best_improved.pth",
             "roi": "Models/best_improved_roi.pth",
         },
-        "target_fn":   _get_normcnn_target,
+        "target_fn":   _get_improved_target,
         "img_size":    256,
         "mean":        [0.5, 0.5, 0.5],
         "std":         [0.5, 0.5, 0.5],
-        "display":     "NormCNN (Improved)",
+        "display":     "Improved (Improved)",
     },
-    "attentioncnn": {
-        "cls":         AttentionCNN,
+    "lite": {
+        "cls":         Lite,
         "weights":     {
             "raw": "Models/best_braintumor_lite.pth",
             "roi": "Models/best_braintumor_lite_roi.pth",
         },
-        "target_fn":   _get_attentioncnn_target,
+        "target_fn":   _get_lite_target,
         "img_size":    128,
         "mean":        [0.485, 0.456, 0.406],
         "std":         [0.229, 0.224, 0.225],
-        "display":     "AttentionCNN (Lite)",
+        "display":     "Lite (Lite)",
     },
 }
 
@@ -558,10 +558,10 @@ def run_standard(model_key: str, dataset_key: str):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-#  Mode 2 — Sequential saliency (AttentionCNN only)
+#  Mode 2 — Sequential saliency (Lite only)
 # ─────────────────────────────────────────────────────────────────────────────
 def run_sequential(dataset_key: str):
-    model_key = "attentioncnn"
+    model_key = "lite"
     cfg       = MODEL_REGISTRY[model_key]
     out_dir   = Path(OUT_ROOT) / f"{model_key}_{dataset_key}"
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -574,7 +574,7 @@ def run_sequential(dataset_key: str):
         print(f"No checkpoints in {SALIENCY_DIR}. Run MRI_classifier.py first.")
         return
 
-    print(f"\n  [Sequential saliency — AttentionCNN / {dataset_key.upper()}]")
+    print(f"\n  [Sequential saliency — Lite / {dataset_key.upper()}]")
     print(f"  Found {len(ckpts)} checkpoints.")
 
     # Use best-model's sample selection for consistent images across epochs
@@ -629,7 +629,7 @@ def run_sequential(dataset_key: str):
 
         fig.suptitle(
             f"Sequential Saliency — {CLASS_NAMES[cls].upper()}  "
-            f"[AttentionCNN / {dataset_key.upper()}]",
+            f"[Lite / {dataset_key.upper()}]",
             color="white", fontsize=12, fontweight="bold",
         )
         path = out_dir / f"sequential_{CLASS_NAMES[cls]}.png"
@@ -644,15 +644,15 @@ def run_sequential(dataset_key: str):
 # ─────────────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="Unified Grad-CAM for SimpleCNN / NormCNN / AttentionCNN",
+        description="Unified Grad-CAM for Baseline / Improved / Lite",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     parser.add_argument("--model",      default="all",
-                        choices=["simplecnn", "normcnn", "attentioncnn", "all"])
+                        choices=["baseline", "improved", "lite", "all"])
     parser.add_argument("--dataset",    default="raw",
                         choices=["raw", "roi", "both"])
     parser.add_argument("--sequential", action="store_true",
-                        help="Sequential saliency filmstrip (AttentionCNN only)")
+                        help="Sequential saliency filmstrip (Lite only)")
     parser.add_argument("--all",        action="store_true",
                         help="Run all models on both datasets")
     args = parser.parse_args()
