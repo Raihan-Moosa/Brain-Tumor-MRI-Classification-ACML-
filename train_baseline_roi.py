@@ -32,13 +32,13 @@ import matplotlib.pyplot as plt
 
 from stopping import EarlyStopping
 
-# ── Reproducibility ───────────────────────────────────────────────────────────
+#  Reproducibility 
 SEED = 42
 random.seed(SEED)
 np.random.seed(SEED)
 torch.manual_seed(SEED)
 
-# ── Paths ─────────────────────────────────────────────────────────────────────
+# Paths 
 TRAIN = "Dataset/ROI/train"
 VAL   = "Dataset/ROI/val"
 TEST  = "Dataset/ROI/test"
@@ -47,7 +47,7 @@ os.makedirs("Models", exist_ok=True)
 os.makedirs("Plots",  exist_ok=True)
 CKPT = "Models/best_baseline_roi.pth"
 
-# ── Hyper-parameters — original values preserved ──────────────────────────────
+# Hyper-parameters — original values preserved 
 IMG_SIZE    = 224       # original — slow but kept for authenticity
 BATCH       = 8         # original
 NUM_EPOCHS  = 60        # raised from 10; ES fires before this anyway
@@ -59,7 +59,7 @@ NUM_WORKERS = 0
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Device: {DEVICE}")
 
-# ── Transforms — original (no normalisation, rotation only) ───────────────────
+# Transforms — original (no normalisation, rotation only) 
 train_tf = transforms.Compose([
     transforms.Resize((IMG_SIZE, IMG_SIZE)),
     transforms.RandomRotation(10),          # original augmentation
@@ -71,7 +71,7 @@ eval_tf = transforms.Compose([
     transforms.ToTensor(),
 ])
 
-# ── Data ──────────────────────────────────────────────────────────────────────
+# Data 
 train_ds = datasets.ImageFolder(TRAIN, transform=train_tf)
 val_ds   = datasets.ImageFolder(VAL,   transform=eval_tf)
 test_ds  = datasets.ImageFolder(TEST,  transform=eval_tf)
@@ -86,7 +86,7 @@ test_loader  = DataLoader(test_ds,  batch_size=BATCH, shuffle=False,
 print(f"Classes : {train_ds.classes}")
 print(f"Train: {len(train_ds)}  Val: {len(val_ds)}  Test: {len(test_ds)}\n")
 
-# ── Model — original architecture with one structural fix ─────────────────────
+#  Model — original architecture with one structural fix 
 class BrainTumorCNN(nn.Module):
     """
     Original four-block CNN.
@@ -126,7 +126,7 @@ optimizer = optim.Adam(model.parameters(), lr=LR)   # original
 n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
 print(f"Baseline CNN — {n_params:,} trainable parameters\n")
 
-# ── Training helpers ──────────────────────────────────────────────────────────
+# Training helpers 
 def train_one_epoch():
     model.train()
     total_loss, correct, total = 0.0, 0, 0
@@ -156,7 +156,7 @@ def evaluate(loader):
     return total_loss / total, 100.0 * correct / total
 
 
-# ── Training loop ─────────────────────────────────────────────────────────────
+# Training loop 
 stopper = EarlyStopping(patience=PATIENCE, delta=DELTA,
                         checkpoint_path=CKPT, verbose=True, mode="min")
 history = dict(train_loss=[], train_acc=[], val_loss=[], val_acc=[])
@@ -184,11 +184,11 @@ for epoch in range(1, NUM_EPOCHS + 1):
 
 stopper.load_best(model)
 
-# ── Test ──────────────────────────────────────────────────────────────────────
+# Test 
 test_loss, test_acc = evaluate(test_loader)
 print(f"\nTest accuracy : {test_acc:.2f}%  |  Test loss : {test_loss:.5f}")
 
-# ── Curves ────────────────────────────────────────────────────────────────────
+# Curves 
 xs = range(1, len(history["train_loss"]) + 1)
 fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(13, 5))
 ax1.plot(xs, history["train_loss"], label="Train", color="#2196F3", lw=2)
