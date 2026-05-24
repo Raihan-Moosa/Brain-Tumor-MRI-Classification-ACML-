@@ -440,7 +440,13 @@ The \textbf{AttentionCNN (Lite)} demonstrated the most complex training dynamics
 
 \subsection{Quantitative Results and ROI Analysis}
 
-To systematically evaluate whether the models were learning clinically meaningful tumour features or exploiting spurious background correlations (such as scanner artifacts or skull shape), the models were evaluated on both the \textbf{Raw} test set and the \textbf{ROI-cropped} test set. The final test accuracies are presented in Table~\ref{tab:results_summary}.
+To rigorously test whether the networks were learning true pathological features or exploiting macroscopic background correlations, the models were evaluated on both the \textbf{Raw} test set and the \textbf{ROI-cropped} test set. The final test accuracies are presented in Table~\ref{tab:results_summary}.
+
+The baseline \textbf{SimpleCNN} demonstrated stable and unexpectedly high accuracy across both datasets, achieving $95.65\%$ on the raw images and $95.93\%$ on the ROI crops. While a naive interpretation might suggest the model learned robust biological features, further visual analysis in Section~\ref{sec:gradcam} reveals this stability is a byproduct of the model substituting one spatial shortcut for another.
+
+The \textbf{NormCNN} recorded the lowest performance, achieving $80.65\%$ on the raw dataset and dropping further to $75.83\%$ on the ROI dataset. This measurable degradation is a direct consequence of the $1 \times 1$ Global Average Pooling (GAP) layer. By compressing spatial dimensions into a single channel average, GAP prevents the network from tracking precise geometric coordinates, thereby making it highly sensitive to the removal of the macroscopic spatial anchors present in the raw images.
+
+Conversely, the \textbf{AttentionCNN (Lite)} proved to be the most robust architecture. On the ROI dataset, it achieved a peak accuracy of $95.83\%$ (reaching $96.02\%$ when using Test-Time Augmentation). This positive performance shift confirms that the removal of extraneous background noise allowed the Squeeze-and-Excitation (SE) attention modules to isolate and focus entirely on morphological tumour differences.
 
 \begin{table}[H]
 \centering
@@ -457,15 +463,15 @@ AttentionCNN (Lite)  & 94.63\% & 95.83\% & +1.20\% \\
 \end{tabular}
 \end{table}
 
-The baseline \textbf{SimpleCNN} achieved an unexpectedly high baseline accuracy of 95.65\% on the raw dataset. Notably, when tested on the ROI dataset, its performance increased slightly (+0.28\%), indicating that the model was primarily relying on the brain tissue itself rather than the black background padding.
-
-The \textbf{NormCNN} performed the poorest, achieving only 80.65\% on the raw images and dropping significantly to 75.83\% on the ROI images (-4.81\%). This suggests that the NormCNN was partially relying on background context to make its predictions, and stripping that context away harmed its diagnostic capability.
-
-The \textbf{AttentionCNN} proved to be the most robust architecture. On the ROI dataset, using Test-Time Augmentation (TTA), it achieved a peak accuracy of \textbf{96.02\%}. The +1.20\% performance boost on the ROI dataset confirms that removing extraneous background pixels allows the squeeze-and-excitation (SE) attention modules to focus entirely on morphological tumour differences.
-
 \subsection{Class-Specific Performance}
 
-To understand the models' performance on a granular level, confusion matrices and classification reports were generated. Figures~\ref{fig:conf_simple}, \ref{fig:conf_norm}, and \ref{fig:conf_att} illustrate the confusion matrices across all evaluated settings.
+Analysis of the confusion matrices provides deeper insight into the architectural limitations of the models, particularly regarding the spatial requirements of different tumour types.
+
+The \textbf{SimpleCNN} confusion matrices exhibited strong diagonal dominance across both datasets. Because its $4 \times 4$ adaptive pooling preserves localised grid coordinates, it maintained its classification distribution effectively, albeit through the use of border-based spatial shortcuts.
+
+The \textbf{NormCNN}, however, demonstrated a severe and specific vulnerability on the ROI dataset: a high degree of inter-class confusion between the \texttt{glioma} and \texttt{meningioma} categories. This is a direct mathematical consequence of its spatial bottleneck. Both tumour types share similar gray-scale density profiles; however, meningiomas are typically surface-level (extra-axial) while gliomas are internal and infiltrating (intra-axial). Because the GAP layer flattens all spatial coordinates, the network becomes physically blind to the anatomical location of the mass. Forced to classify based on global textural statistics alone, it struggles to differentiate between the two.
+
+The \textbf{AttentionCNN} successfully mitigated this spatial bottleneck. By combining global pooling with channel-wise recalibration via SE blocks, the network maintained high F1-scores across all classes, effectively distinguishing between gliomas and meningiomas without requiring rigid spatial grids.
 
 % --- SimpleCNN confusion matrices ---
 \begin{figure}[H]
@@ -521,8 +527,15 @@ To understand the models' performance on a granular level, confusion matrices an
 The AttentionCNN demonstrated exceptional recall for the \texttt{notumor} class (99.63\%) and the \texttt{pituitary} class (95.56\%). The primary source of error across all models, including the AttentionCNN, was the confusion between \texttt{glioma} and \texttt{meningioma}. This is a well-documented challenge in medical computer vision, as both tumour types can present with similar textures and irregular boundaries depending on the MRI slice. Nevertheless, the AttentionCNN maintained F1-scores above 0.93 across all four categories.
 
 \subsection{Interpretability via Grad-CAM}
+\label{sec:gradcam}
 
-A core objective of this project was to ensure the models were learning genuine radiological features. To verify this, Gradient-weighted Class Activation Mapping (Grad-CAM) was applied to the final convolutional layers of the models to visualise the regions of the image that contributed most to the final classification.
+A core objective of this project was to ensure the models were learning genuine radiological features rather than spurious background correlations. To verify this, Gradient-weighted Class Activation Mapping (Grad-CAM) was applied to the final convolutional layers of the models to visualise the regions of the image driving the classification.
+
+As shown in Figure~\ref{fig:gradcam_summaries}, the models exhibited starkly contrasting feature attribution profiles depending on their underlying pooling and attention mechanisms. The visualisations expose severe shortcut learning in the baseline \textbf{SimpleCNN}. Because the model utilises local spatial pooling ($4 \times 4$), it explicitly maps its activations to high-contrast geometric boundaries; on the raw dataset, the network tracked the extreme outer scanning borders, while on the ROI dataset, it immediately shifted its focus to the newly introduced perimeter of the skull bone mask. This confirms that the baseline's high accuracy is structurally superficial and clinically invalid.
+
+In contrast, the \textbf{NormCNN} feature maps demonstrate the geometric consequences of a global bottleneck. The focal area becomes a diffused, unlocalised cloud across the cerebral parenchyma. While the network successfully ignores the sharp border artifacts, the forced compression of spatial dimensions via $1 \times 1$ Global Average Pooling results in a global textural average rather than a precise pathological target.
+
+Finally, the \textbf{AttentionCNN} provides empirical validation of the channel-wise attention mechanism. Rather than succumbing to the diffuse blurring of the intermediate model or the edge-shortcut tracking of the baseline, the Squeeze-and-Excitation blocks successfully suppress background noise and tightly overlap with the actual tumour masses for the \texttt{glioma}, \texttt{meningioma}, and \texttt{pituitary} classes. For the \texttt{notumor} class, the network's attention is broadly and symmetrically distributed across the healthy brain parenchyma, confirming the absence of focal lesions. This visual evidence concludes that the AttentionCNN is making highly accurate predictions based on clinically valid visual evidence.
 
 \begin{figure}[H]
     \centering
@@ -559,7 +572,6 @@ A core objective of this project was to ensure the models were learning genuine 
     \label{fig:gradcam_summaries}
 \end{figure}
 
-As shown in Figure~\ref{fig:gradcam_summaries}, the models successfully localized the pathology. The heatmaps tightly overlap with the actual tumour masses for the \texttt{glioma}, \texttt{meningioma}, and \texttt{pituitary} classes. For the \texttt{notumor} class, the network's attention is broadly and symmetrically distributed across the healthy brain parenchyma, confirming the absence of focal lesions. This visual evidence, combined with the positive ROI performance delta, concludes that the AttentionCNN is making highly accurate predictions based on clinically valid visual evidence.
 
 \begin{figure}[H]
     \centering
